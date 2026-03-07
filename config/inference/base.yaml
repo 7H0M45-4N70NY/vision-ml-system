@@ -1,0 +1,67 @@
+# --- Vision ML System: Inference Configuration ---
+
+model:
+  name: yolo11n
+  pretrained: true
+  num_classes: 1  # Person class only for visitor analytics
+  task: detect
+  # Model precision — output format is IDENTICAL across all options
+  precision: fp32  # 'fp32' or 'fp16'
+  # fp32: Default. Works on CPU + GPU. Full precision. Models cached in ~/.cache/yolo/
+  # fp16: GPU-only (CUDA). ~2x faster, ~50% less VRAM. Falls back to fp32 on CPU.
+  # Note: INT8 requires TensorRT (GPU-only, complex). For portfolio, use FP32.
+
+# Detector factory configuration
+detection:
+  detector_type: yolo11n  # 'yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x', 'rfdetr'
+  primary_detector: yolo11n    # For dual-detector mode
+  secondary_detector: rfdetr   # For dual-detector mode (fallback for low-confidence)
+  use_dual_detector: true     # Set to true to enable dual-detector with fallback
+
+inference:
+  confidence_threshold: 0.35
+  iou_threshold: 0.45
+  device: cpu  # 'cpu' or 'cuda' or 'cuda:0'
+  classes: [0]  # COCO person class
+
+# Online = real-time stream (webcam/RTSP), Offline = batch video file
+mode:
+  type: offline  # 'online' or 'offline'
+  source: null   # Path to video file (offline) or stream URL / camera index (online)
+  output_dir: runs/inference
+  save_video: true
+  show_live: false  # Display live window (online mode)
+
+# Tracker selection and configuration
+tracking:
+  enabled: true
+  tracker_type: bytetrack  # 'bytetrack', 'botsort', 'ocsort'
+  track_thresh: 0.25       # Detection threshold for creating new tracks
+  track_buffer: 30         # Frames to keep lost tracks alive
+  match_thresh: 0.8        # IoU threshold for matching detections to tracks
+  frame_rate: 30           # Video frame rate (for time-based calculations)
+
+# Supervision annotator settings
+annotation:
+  bounding_box:
+    enabled: true
+    thickness: 2
+    color: null  # null = auto color palette
+  label:
+    enabled: true
+    text_scale: 0.5
+    text_thickness: 1
+  trace:
+    enabled: true
+    trace_length: 60
+  heatmap:
+    enabled: false
+    opacity: 0.5
+
+# Visitor analytics settings
+analytics:
+  enabled: true
+  count_unique_visitors: true
+  compute_dwell_time: true
+  dwell_time_fps: 30
+  output_json: true

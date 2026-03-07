@@ -172,3 +172,26 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# ===========================================
+# Project-specific
+# ===========================================
+
+# Model weights (version via DVC)
+*.pth
+*.pt
+*.onnx
+*.engine
+
+# Local MLflow & YOLO run artifacts
+mlruns/
+runs/
+
+# Data (version via DVC)
+data/
+
+# Docs (hosted separately / not ready)
+docs/
+
+# Research notebooks (kept local)
+Research/

@@ -1,0 +1,64 @@
+# --- Vision ML System: Training Configuration ---
+
+model:
+  name: yolo11n
+  pretrained: true
+  num_classes: 1
+  task: detect
+
+training:
+  epochs: 10
+  batch_size: 16
+  imgsz: 640
+  learning_rate: 0.01
+  optimizer: auto
+  device: cpu  # 'cpu' or 'cuda'
+  project: runs/train
+  patience: 5  # Early stopping patience
+
+data:
+  dataset_yaml: null  # Path to dataset.yaml (YOLO format). null = uses coco8 for testing
+  train_path: data/raw/train
+  val_path: data/raw/val
+
+# Triggered retraining schedule
+schedule:
+  mode: manual  # 'manual', 'daily', 'weekly', 'monthly', 'on_drift'
+  cron: null    # Cron expression for scheduled jobs (e.g. "0 2 * * 1" = weekly Monday 2am)
+
+# Drift detection to trigger retraining
+drift:
+  enabled: false
+  method: confidence_drop  # 'confidence_drop' or 'data_distribution'
+  confidence_threshold: 0.3  # If avg confidence drops below this, flag drift
+  window_size: 500  # Number of recent inferences to check
+  check_interval: 100  # Check drift every N inferences
+
+# MLflow + DagsHub experiment tracking
+mlflow:
+  experiment_name: visitor_analytics_training
+  run_name: yolo11n_baseline
+  tracking_uri: https://dagshub.com/7H0M45-4N70NY/vision-ml-system.mlflow
+  log_params: true
+  log_metrics: true
+  log_model: true
+  register_model: true
+  model_name: visitor-analytics-yolo11n
+
+# Detector factory configuration (for dual-model setup)
+detection:
+  detector_type: yolo11n
+  primary_detector: yolo11n    # Fast detector for initial pass
+  secondary_detector: rfdetr   # Accurate detector for low-confidence cases
+  use_dual_detector: false     # Enable for pseudo-label generation
+
+# Enhanced auto-labeling pipeline with dual-detector support
+labeling:
+  enabled: false
+  provider: roboflow  # 'roboflow' or 'local'
+  roboflow_api_key: null  # Set via env var ROBOFLOW_API_KEY
+  roboflow_workspace: null
+  roboflow_project: null
+  auto_label_confidence: 0.7  # Only auto-label if detection confidence > this
+  secondary_confidence_boost: 0.1  # Boost confidence for secondary detector predictions
+  secondary_detection_threshold: 0.2  # If >20% detections from secondary, trigger retrain

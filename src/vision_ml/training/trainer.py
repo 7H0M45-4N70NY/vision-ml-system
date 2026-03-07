@@ -1,0 +1,99 @@
+import os
+from ultralytics import YOLO
+from .callbacks import MLflowCallback
+
+
+class Trainer:
+    def __init__(self, config: dict):
+        self.config = config
+        self.mlflow_callback = MLflowCallback(config)
+
+        model_cfg = config.get('model', {})
+        self.model_name = model_cfg.get('name', 'yolo11n')
+        if not self.model_name.endswith('.pt') and not self.model_name.endswith('.yaml'):
+            self.model_name += '.pt'
+
+        self.model = YOLO(self.model_name)
+
+    def train(self, run_name: str = None):
+        train_cfg = self.config.get('training', {})
+        data_cfg = self.config.get('data', {})
+        dataset = data_cfg.get('dataset_yaml') or 'coco8.yaml'
+        actual_name = run_name or self.config.get('mlflow', {}).get('run_name', 'exp')
+
+        self.mlflow_callback.start_run(run_name=actual_name)
+        self.mlflow_callback.set_tag('trigger', 'manual')
+
+        try:
+            print(f"[Trainer] Starting training: {self.model_name} for {train_cfg.get('epochs', 10)} epochs")
+            print(f"[Trainer] Dataset: {dataset}")
+
+            results = self.model.train(
+                data=dataset,
+                epochs=train_cfg.get('epochs', 10),
+                batch=train_cfg.get('batch_size', 16),
+                imgsz=train_cfg.get('imgsz', 640),
+                lr0=train_cfg.get('learning_rate', 0.01),
+                optimizer=train_cfg.get('optimizer', 'auto'),
+                device=train_cfg.get('device', 'cpu'),
+                patience=train_cfg.get('patience', 5),
+                project=train_cfg.get('project', 'runs/train'),
+                name=actual_name,
+                exist_ok=True,
+            )
+
+            self._log_results(results, train_cfg, actual_name)
+            print("[Trainer] Training completed successfully.")
+
+        except Exception as e:
+            self.mlflow_callback.set_tag('status', 'failed')
+            print(f"[Trainer] Training failed: {e}")
+            raise
+        finally:
+            self.mlflow_callback.end_run()
+
+    def train_on_drift(self, run_name: str = None):
+        actual_name = run_name or 'drift_retrain'
+        self.mlflow_callback.start_run(run_name=actual_name)
+        self.mlflow_callback.set_tag('trigger', 'drift_detected')
+
+        train_cfg = self.config.get('training', {})
+        data_cfg = self.config.get('data', {})
+        dataset = data_cfg.get('dataset_yaml') or 'coco8.yaml'
+
+        try:
+            print("[Trainer] Drift-triggered retraining started.")
+            results = self.model.train(
+                data=dataset,
+                epochs=train_cfg.get('epochs', 10),
+                batch=train_cfg.get('batch_size', 16),
+                imgsz=train_cfg.get('imgsz', 640),
+                lr0=train_cfg.get('learning_rate', 0.01),
+                optimizer=train_cfg.get('optimizer', 'auto'),
+                device=train_cfg.get('device', 'cpu'),
+                patience=train_cfg.get('patience', 5),
+                project=train_cfg.get('project', 'runs/train'),
+                name=actual_name,
+                exist_ok=True,
+            )
+            self._log_results(results, train_cfg, actual_name)
+            print("[Trainer] Drift retraining completed.")
+        except Exception as e:
+            self.mlflow_callback.set_tag('status', 'failed')
+            print(f"[Trainer] Drift retraining failed: {e}")
+            raise
+        finally:
+            self.mlflow_callback.end_run()
+
+    def _log_results(self, results, train_cfg: dict, run_name: str = 'exp'):
+        if hasattr(results, 'results_dict'):
+            self.mlflow_callback.log_metrics(results.results_dict)
+
+        project = train_cfg.get('project', 'runs/train')
+        best_path = os.path.join(project, run_name, 'weights', 'best.pt')
+
+        if os.path.exists(best_path):
+            self.mlflow_callback.log_model(best_path)
+            self.mlflow_callback.register_model(best_path)
+        else:
+            print(f"[Trainer] Best model not found at {best_path}, skipping artifact log.")
