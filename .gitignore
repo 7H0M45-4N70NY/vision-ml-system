@@ -177,7 +177,7 @@ cython_debug/
 # Project-specific
 # ===========================================
 
-# Model weights (version via DVC)
+# Model weights (version via DVC if using DVC)
 *.pth
 *.pt
 *.onnx
@@ -186,12 +186,25 @@ cython_debug/
 # Local MLflow & YOLO run artifacts
 mlruns/
 runs/
+!runs/**/README.md
 
-# Data (version via DVC)
-data/
-
-# Docs (hosted separately / not ready)
-docs/
+# Data and Databases
+data/*.db
+data/*.db-journal
+data/low_confidence_frames/
+data/auto_labeled/
+data/prepared/
+!data/.gitkeep
 
 # Research notebooks (kept local)
 Research/
+
+# Environment and Credentials
+.env
+.env.local
+.env.*.local
+
+# Documentation and Shell Scripts
+docs/_build/
+shell_scripts/*.sh
+!shell_scripts/test_roboflow_pipeline.sh

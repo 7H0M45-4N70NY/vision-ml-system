@@ -15,8 +15,6 @@ except ImportError:
 from src.vision_ml.analytics.analytics_db import AnalyticsDB
 from src.vision_ml.mlflow_integration import MLflowManager
 
-st.set_page_config(page_title="Training Pipeline", page_icon="🔄", layout="wide")
-
 st.title("🔄 Training Pipeline Orchestration")
 st.markdown("Monitor and manage automated training workflows with Airflow")
 
@@ -269,50 +267,74 @@ elif view_type == "Drift Detection":
         df_runs['timestamp'] = pd.to_datetime(df_runs['timestamp'])
         df_runs = df_runs.sort_values('timestamp')
         
-        st.markdown("**Drift Monitoring**")
+        # Ensure columns exist (backward compat with older DB rows)
+        if 'avg_confidence' not in df_runs.columns:
+            df_runs['avg_confidence'] = 0.0
+        if 'drift_score' not in df_runs.columns:
+            df_runs['drift_score'] = 0.0
+        df_runs['avg_confidence'] = df_runs['avg_confidence'].fillna(0.0)
+        df_runs['drift_score'] = df_runs['drift_score'].fillna(0.0)
         
-        col1, col2, col3 = st.columns(3)
+        st.markdown("**Confidence-Based Drift Monitoring**")
         
         # Current metrics
         latest_run = df_runs.iloc[-1]
         previous_run = df_runs.iloc[-2]
         
-        current_ratio = latest_run['secondary_ratio']
-        previous_ratio = previous_run['secondary_ratio']
-        drift_score = abs(current_ratio - previous_ratio)
+        current_conf = latest_run.get('avg_confidence', 0)
+        previous_conf = previous_run.get('avg_confidence', 0)
+        current_drift = latest_run.get('drift_score', 0)
+        conf_delta = current_conf - previous_conf
+        
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Current Secondary Ratio", f"{current_ratio:.1%}")
+            st.metric("Current Avg Confidence", f"{current_conf:.3f}",
+                       delta=f"{conf_delta:+.3f}" if previous_conf > 0 else None)
         
         with col2:
-            st.metric("Previous Secondary Ratio", f"{previous_ratio:.1%}")
+            st.metric("Previous Avg Confidence", f"{previous_conf:.3f}")
         
         with col3:
-            st.metric("Drift Score", f"{drift_score:.3f}")
+            st.metric("Drift Score", f"{current_drift:.3f}")
+        
+        with col4:
+            secondary_ratio = latest_run.get('secondary_ratio', 0) or 0
+            st.metric("Secondary Ratio", f"{secondary_ratio:.1%}")
         
         st.divider()
         
         # Drift threshold
-        drift_threshold = st.slider("Drift Threshold", 0.0, 1.0, 0.2)
+        drift_threshold = st.slider("Drift Threshold (drift_score)", 0.0, 1.0, 0.5,
+                                     help="Drift score = 1 - avg_confidence. Higher = worse model performance.")
         
-        if drift_score > drift_threshold:
+        if current_drift > drift_threshold:
             st.warning(
                 f"⚠️ **DRIFT DETECTED**\n\n"
-                f"Drift score ({drift_score:.3f}) exceeds threshold ({drift_threshold:.3f})\n\n"
-                f"Automatic retraining will be triggered."
+                f"Drift score ({current_drift:.3f}) exceeds threshold ({drift_threshold:.3f})\n\n"
+                f"Average confidence has dropped — model may need retraining."
             )
             
             col1, col2 = st.columns(2)
             
             with col1:
                 if st.button("🚀 Trigger Retraining Now", key="trigger_retrain"):
+                    import subprocess, sys
                     event_id = db.save_training_event({
                         'trigger_type': 'drift',
                         'dataset_size': len(df_runs),
-                        'drift_score': drift_score,
+                        'drift_score': current_drift,
                         'model_version': 'auto_retrain',
                     })
-                    st.success(f"✅ Retraining triggered! Event ID: {event_id}")
+                    try:
+                        subprocess.Popen(
+                            [sys.executable, "scripts/train.py", "--trigger", "drift"],
+                            cwd=".",
+                        )
+                        st.success(f"✅ Retraining triggered! Event ID: {event_id}")
+                        st.info("Training running in background — check MLflow Experiments for progress")
+                    except Exception as e:
+                        st.error(f"❌ Failed to launch training: {e}")
             
             with col2:
                 if st.button("🔕 Snooze Alert (1 hour)", key="snooze_alert"):
@@ -320,40 +342,46 @@ elif view_type == "Drift Detection":
         else:
             st.success(
                 f"✅ **NO DRIFT DETECTED**\n\n"
-                f"Drift score ({drift_score:.3f}) is below threshold ({drift_threshold:.3f})\n\n"
+                f"Drift score ({current_drift:.3f}) is below threshold ({drift_threshold:.3f})\n\n"
                 f"Model is performing well."
             )
         
         st.divider()
         
         # Drift history
-        st.subheader("📊 Drift Score History")
+        st.subheader("📊 Confidence & Drift History")
         
         if HAS_PLOTLY:
-            secondary_ratios = df_runs['secondary_ratio'].values
-            
             fig = go.Figure()
             
             fig.add_trace(go.Scatter(
                 x=df_runs['timestamp'],
-                y=secondary_ratios,
+                y=df_runs['avg_confidence'],
                 mode='lines+markers',
-                name='Secondary Ratio',
-                line=dict(color='blue', width=2),
+                name='Avg Confidence',
+                line=dict(color='green', width=2),
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=df_runs['timestamp'],
+                y=df_runs['drift_score'],
+                mode='lines+markers',
+                name='Drift Score',
+                line=dict(color='red', width=2),
             ))
             
             fig.add_hline(
                 y=drift_threshold,
                 line_dash="dash",
-                line_color="red",
+                line_color="orange",
                 annotation_text=f"Threshold ({drift_threshold:.2f})",
                 annotation_position="right"
             )
             
             fig.update_layout(
-                title="Secondary Detector Usage Over Time",
+                title="Model Confidence & Drift Over Time",
                 xaxis_title="Timestamp",
-                yaxis_title="Secondary Ratio",
+                yaxis_title="Score",
                 height=400,
                 hovermode='x unified'
             )
@@ -363,27 +391,35 @@ elif view_type == "Drift Detection":
         # Drift statistics
         st.markdown("**Drift Statistics**")
         
+        valid_conf = df_runs[df_runs['avg_confidence'] > 0]['avg_confidence']
+        valid_drift = df_runs[df_runs['drift_score'] > 0]['drift_score']
+        
         stats_data = {
             "Metric": [
-                "Mean Secondary Ratio",
-                "Max Secondary Ratio",
-                "Min Secondary Ratio",
-                "Std Dev",
-                "Trend (last 5 runs)",
+                "Mean Avg Confidence",
+                "Min Avg Confidence",
+                "Max Drift Score",
+                "Mean Drift Score",
+                "Runs with Confidence Data",
+                "Confidence Trend (last 5)",
             ],
             "Value": [
-                f"{df_runs['secondary_ratio'].mean():.3f}",
-                f"{df_runs['secondary_ratio'].max():.3f}",
-                f"{df_runs['secondary_ratio'].min():.3f}",
-                f"{df_runs['secondary_ratio'].std():.3f}",
-                "↑ Increasing" if df_runs['secondary_ratio'].iloc[-5:].mean() > df_runs['secondary_ratio'].iloc[-10:-5].mean() else "↓ Decreasing",
+                f"{valid_conf.mean():.3f}" if len(valid_conf) > 0 else "N/A",
+                f"{valid_conf.min():.3f}" if len(valid_conf) > 0 else "N/A",
+                f"{valid_drift.max():.3f}" if len(valid_drift) > 0 else "N/A",
+                f"{valid_drift.mean():.3f}" if len(valid_drift) > 0 else "N/A",
+                f"{len(valid_conf)} / {len(df_runs)}",
+                ("↓ Dropping" if len(valid_conf) >= 5 and valid_conf.iloc[-5:].mean() < valid_conf.iloc[:-5].mean()
+                 else "→ Stable") if len(valid_conf) >= 5 else "Not enough data",
             ]
         }
         
         df_stats = pd.DataFrame(stats_data)
         st.dataframe(df_stats, use_container_width=True, hide_index=True)
     else:
-        st.info("Need at least 2 inference runs to detect drift")
+        remaining = 2 - len(inference_runs)
+        st.info(f"Need at least 2 inference runs to detect drift. "
+                f"Run {remaining} more inference{'s' if remaining > 1 else ''} (video upload or webcam).")
 
 
 # ── Scheduled Runs ──────────────────────────────────────────────

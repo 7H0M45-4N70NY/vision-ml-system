@@ -2,15 +2,16 @@
 
 ## What This Module Does
 
-This module handles **automated data labeling** — using the model's own predictions to generate training labels for future model iterations. This is the "flywheel" that makes the system self-improving:
+This module handles **active learning** — collecting frames where the model struggles (low-confidence detections) and using them to improve future model iterations:
 
 ```
-Model v1 detects people → High-confidence detections become labels
-    → Labels feed into training data → Train Model v2
-        → Model v2 is better → Even better labels → Model v3 → ...
+Inference → Low-confidence detections (failures) → Save frames
+    → Label with RF-DETR (secondary detector)
+        → Training dataset for retraining
+            → Model v2 handles previous failure cases better
 ```
 
-This is sometimes called **pseudo-labeling** or **self-training**, and it's how FAANG companies scale their annotation pipelines without hiring thousands of human labelers.
+This is **active learning**: focus on hard examples (failures) rather than easy wins. It's more data-efficient than collecting everything, and it's how FAANG companies improve model robustness without massive labeling budgets.
 
 ## Files
 
@@ -18,32 +19,30 @@ This is sometimes called **pseudo-labeling** or **self-training**, and it's how 
 
 **Two modes of operation:**
 
-| Mode | Provider | What Happens |
-|---|---|---|
-| **Local** | `provider: local` | Saves labels as JSON to `data/auto_labeled/auto_labels.json` |
-| **Roboflow** | `provider: roboflow` | Uploads to Roboflow for review, versioning, and augmentation |
+| Method | What Happens |
+|---|---|
+| **`collect()`** | No-op. (Disabled — high-confidence collection removed) |
+| **`load_dual_detector_frames()`** | Loads low-confidence frames from `data/low_confidence_frames/` (saved by DualDetector, labeled by RF-DETR) |
 
-**The Confidence Gate:**
+**Active Learning Approach:**
 
-```python
-high_conf_mask = detections.confidence >= self.min_confidence  # default 0.7
-filtered = detections[high_conf_mask]
-```
+The module focuses on **hard examples** — frames where the primary detector (YOLO) had low confidence. These are labeled by the secondary detector (RF-DETR) and used for retraining.
 
-This is the critical quality control step. We only auto-label detections where the model is **very confident** (>70%). Why?
+Why low-confidence frames?
+- YOLO struggles on these frames (model uncertainty = opportunity to improve)
+- RF-DETR provides alternative labels for comparison
+- Training on failures teaches the model to handle edge cases
+- More data-efficient than collecting everything
 
-- At 70%+ confidence, YOLO11n has extremely low false positive rate for person detection
-- These high-confidence labels are nearly as good as human labels
-- Low-confidence detections (30-70%) are ambiguous — they need human review
-- Below 30% is likely noise — discard entirely
-
-**The `collect()` method — called during inference:**
+**The `load_dual_detector_frames()` method:**
 
 ```python
-auto_labeler.collect(image=frame, detections=detections, image_id="frame_42")
+auto_labeler.load_dual_detector_frames(frame_dir='data/low_confidence_frames')
 ```
 
-This doesn't save anything to disk immediately. It buffers label entries in memory. This is intentional — disk I/O during real-time inference would create latency spikes.
+Loads all low-confidence frames saved by DualDetector. Each frame has:
+- **Image**: `frame_000000.jpg`
+- **Labels**: `frame_000000.json` (boxes, confidences, class_ids from RF-DETR)
 
 **The `flush()` method — called at the end:**
 
@@ -51,26 +50,26 @@ This doesn't save anything to disk immediately. It buffers label entries in memo
 auto_labeler.flush(output_dir='data/auto_labeled')
 ```
 
-This writes all buffered labels at once. Batch I/O is always faster than per-frame I/O.
+This writes all loaded labels to `auto_labels.json`. Batch I/O is always faster than per-frame I/O.
 
-**Label Format (local export):**
+**Label Format (auto_labels.json):**
 
 ```json
 [
   {
-    "image_id": "frame_42",
-    "boxes": [[100, 200, 300, 400], [500, 100, 600, 350]],
-    "confidences": [0.92, 0.85],
-    "class_ids": [0, 0]
+    "image_id": "frame_000000",
+    "image_path": "data/low_confidence_frames/frame_000000.jpg",
+    "boxes": [[24.67, 116.70, 641.06, 479.45]],
+    "confidences": [0.625],
+    "class_ids": [0]
   }
 ]
 ```
 
-This is a simple intermediate format. To use these labels for YOLO training, you'd convert them to YOLO format:
+These are low-confidence frames from the primary detector (YOLO < 0.5 confidence) labeled by the secondary detector (RF-DETR). The labels are converted to YOLO format for training:
 ```
 # YOLO format: class_id center_x center_y width height (normalized)
 0 0.3125 0.4688 0.3125 0.3125
-0 0.8594 0.3516 0.1563 0.3906
 ```
 
 ### Roboflow Integration
@@ -91,68 +90,70 @@ Roboflow provides:
 
 The API key comes from either the config or the `ROBOFLOW_API_KEY` environment variable (security best practice — never hardcode secrets).
 
-## The Auto-Labeling Flywheel
+## The Active Learning Flywheel
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                                                      │
 │   ┌──────────┐    ┌──────────────┐    ┌──────────┐  │
-│   │ Model v1 │───→│ Inference    │───→│ Collect  │  │
-│   │          │    │ (detect)     │    │ Labels   │  │
+│   │ Model v1 │───→│ Inference    │───→│ Identify │  │
+│   │          │    │ (detect)     │    │ Failures │  │
 │   └──────────┘    └──────────────┘    └────┬─────┘  │
 │        ^                                    │        │
+│        │                             low-confidence  │
 │        │                                    v        │
 │   ┌────┴─────┐    ┌──────────────┐    ┌──────────┐  │
-│   │ Train    │←───│ Review       │←───│ Roboflow │  │
-│   │ Model v2 │    │ (human QA)   │    │ Upload   │  │
+│   │ Train    │←───│ RF-DETR      │←───│ Save     │  │
+│   │ Model v2 │    │ Labels       │    │ Frames   │  │
 │   └──────────┘    └──────────────┘    └──────────┘  │
 │                                                      │
 └─────────────────────────────────────────────────────┘
 ```
 
-The human review step is critical — it catches the ~5% of auto-labels that are wrong. Over time, as the model improves, the human review burden decreases (fewer corrections needed).
+The focus is on hard examples (low-confidence detections) rather than easy wins. This teaches the model to handle edge cases and improves robustness faster than general data collection.
 
-## System Design: Scaling Labeling
+## System Design: Scaling Active Learning
 
 ```
 Current (Project Level):
-  Buffer labels in memory → JSON dump → Manual review
+  DualDetector finds failures → RF-DETR labels them → Retrain
 
-FAANG Scale (Active Learning Pipeline):
+FAANG Scale (Uncertainty Sampling):
   ┌────────────────────────────────────────────────────────┐
   │  Inference Service (real-time)                          │
   │       |                                                 │
-  │  Label Confidence Router                                │
-  │    ├── conf > 0.9 → Auto-accept (no human needed)      │
-  │    ├── 0.5 < conf < 0.9 → Send to human review queue   │
-  │    └── conf < 0.5 → Discard (too noisy)                 │
+  │  Uncertainty Detector (disagreement between models)      │
+  │    ├── YOLO_conf > 0.8 AND RF-DETR agrees               │
+  │    │   → Skip (high confidence, model agrees)           │
+  │    ├── YOLO_conf < 0.5 OR models disagree              │
+  │    │   → HIGH UNCERTAINTY (save for labeling)           │
+  │    └── YOLO_conf < 0.2                                  │
+  │        → DISCARD (too noisy, likely false positive)     │
   │       |                                                 │
-  │  Human Review Platform (Label Studio / Scale AI)        │
-  │    ├── Prioritize low-confidence, high-uncertainty       │
-  │    ├── Review corrections feed back to training         │
-  │    └── Annotator agreement metrics for quality control   │
+  │  Prioritized Review Queue                               │
+  │    ├── High-uncertainty samples reviewed first           │
+  │    ├── Corrections fed back to training                 │
+  │    └── Trigger retrain when uncertainty pool filled      │
   │       |                                                 │
   │  Dataset Versioning (DVC / Roboflow)                    │
   │    ├── Snapshot dataset after each labeling batch        │
   │    ├── Track label provenance (auto vs human)            │
-  │    └── Trigger retrain when N new labels accumulated     │
+  │    └── Measure label quality improvements over time      │
   └────────────────────────────────────────────────────────┘
 
-  This is called "Active Learning" — the model identifies which
-  samples would benefit MOST from human labeling, instead of
-  randomly labeling everything. It reduces labeling cost by 5-10x.
+  Active Learning with disagreement detection finds the hardest
+  examples with minimal labeling cost (5-10x reduction vs random).
 ```
 
 ## Config Parameters
 
 ```yaml
 labeling:
-  enabled: false                  # Turn on when ready for auto-labeling
+  enabled: false                  # Turn on when ready for active learning
   provider: roboflow              # 'local' or 'roboflow'
   roboflow_api_key: null          # Set via ROBOFLOW_API_KEY env var
   roboflow_workspace: null        # Your Roboflow workspace name
   roboflow_project: null          # Your Roboflow project name
-  auto_label_confidence: 0.7     # Minimum confidence for auto-labels
 ```
 
 ## What I Learned Building This
@@ -161,8 +162,8 @@ labeling:
 
 2. **Lazy import for optional dependencies** — `from roboflow import Roboflow` is inside the method, not at the top of the file. This means the `roboflow` package is only required if you actually use the Roboflow provider. Users who only want local export don't need to install it.
 
-3. **The confidence threshold is a hyperparameter** — 0.7 is conservative. For well-performing models in controlled environments (fixed cameras, good lighting), you could lower it to 0.5. For noisy environments, raise it to 0.85. Tune based on your false positive rate.
+3. **Active learning is more efficient than random sampling** — Focusing on low-confidence frames (failures) teaches the model what it doesn't know. Random sampling wastes effort on easy examples the model already handles. Active learning improves models 3-5x faster.
 
-4. **Buffering prevents I/O latency** — Writing to disk on every frame would add ~5-10ms of latency (file open, write, close). Buffering 1000 frames and writing once adds <1ms amortized. This matters for online mode.
+4. **Dual detection enables active learning** — DualDetector (YOLO primary + RF-DETR secondary) captures cases where models disagree. These disagreements are high-uncertainty examples — perfect for active learning.
 
-5. **The flywheel effect is real** — At FAANG companies, models that auto-generate training data improve 2-3x faster than models that rely solely on human annotation. The key is quality control (the confidence gate + human review).
+5. **Hard examples compound** — As the model improves on failure cases, it becomes more robust. This is why active learning creates a virtuous cycle: harder examples → better training → fewer failures → focus on remaining hard examples.

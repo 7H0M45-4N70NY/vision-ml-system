@@ -1,7 +1,12 @@
 """Dual-detector: YOLO (fast) + RF-DETR (accurate fallback).
 
-When primary has low confidence, secondary re-detects and the frame + labels
-are saved to disk for offline training. No Kafka — just a disk buffer.
+Three operational modes:
+  - hot:    Primary detector only. Minimal overhead. Fastest inference.
+  - inline: Dual detector runs during inference. Real-time feedback but slower.
+  - batch:  Primary only during inference; save low-confidence frames for offline
+            secondary detection via batch job. Fast inference + deferred analysis.
+
+Low-confidence frames are saved to disk for offline training/analysis.
 """
 
 import os
@@ -15,21 +20,32 @@ from .detector_factory import DetectorFactory
 
 
 class DualDetector:
-    """Primary (YOLO) + secondary (RF-DETR) with frame collection for training.
+    """Primary (YOLO) + secondary (RF-DETR) with configurable modes.
 
-    Low-confidence frames are saved to `data/low_confidence_frames/` so the
-    training pipeline can use them as pseudo-labeled data to retrain the primary.
+    Modes:
+      - hot:    Primary only (no secondary, no frame saving)
+      - inline: Primary + secondary during inference (real-time, slower)
+      - batch:  Primary only; save low-confidence frames for offline secondary detection
+
+    Low-confidence frames saved to `data/low_confidence_frames/` for training/analysis.
     """
 
     def __init__(self, config: dict):
         det_cfg = config.get('detection', {})
+        self.mode = det_cfg.get('use_dual_detector', 'batch')  # false | 'inline' | 'batch'
         self.primary_type = det_cfg.get('primary_detector', 'yolo11n')
         self.secondary_type = det_cfg.get('secondary_detector', 'rfdetr')
         self.confidence_threshold = det_cfg.get('dual_confidence_threshold', 0.5)
-        self.frame_save_dir = det_cfg.get('frame_save_dir', 'data/low_confidence_frames')
+        self.save_frames = det_cfg.get('save_low_confidence_frames', True)
+        self.frame_save_dir = det_cfg.get('low_confidence_dir', 'data/low_confidence_frames')
 
         self.primary = DetectorFactory.get(self.primary_type, config)
-        self.secondary = DetectorFactory.get(self.secondary_type, config)
+        # Only load secondary if mode is 'inline'
+        self.secondary = (
+            DetectorFactory.get(self.secondary_type, config)
+            if self.mode == 'inline'
+            else None
+        )
 
         self._saved_count = 0
         self._secondary_calls = 0
@@ -40,45 +56,70 @@ class DualDetector:
         return dets
 
     def detect_with_source(self, image: np.ndarray) -> Tuple[sv.Detections, np.ndarray]:
+        """Detect with mode-specific behavior.
+
+        Modes:
+          - hot:    Primary only. No secondary, no frame saving. Fastest.
+          - inline: Primary + secondary (real-time). Slower but immediate feedback.
+          - batch:  Primary only; save low-confidence frames for offline secondary.
+        """
         self._total_frames += 1
         primary_dets = self.primary.detect(image)
 
+        # Hot path: return primary detections only
+        if self.mode is False or self.mode == 'hot':
+            return primary_dets, np.array(['primary'] * len(primary_dets))
+
+        # Check for low-confidence detections
         has_low_conf = (
             primary_dets.confidence is not None
             and len(primary_dets) > 0
             and (primary_dets.confidence < self.confidence_threshold).any()
         )
 
-        if not has_low_conf:
+        # Batch mode: save low-confidence frames for offline secondary detection
+        if self.mode == 'batch':
+            if has_low_conf and self.save_frames:
+                self._save_frame(image, primary_dets)
             return primary_dets, np.array(['primary'] * len(primary_dets))
 
-        # Secondary re-detects the full frame
-        self._secondary_calls += 1
-        secondary_dets = self.secondary.detect(image)
+        # Inline mode: run secondary detector during inference
+        if self.mode == 'inline':
+            if not has_low_conf:
+                return primary_dets, np.array(['primary'] * len(primary_dets))
 
-        # Save frame + secondary labels to disk for offline training
-        self._save_frame(image, secondary_dets)
+            # Secondary re-detects the full frame
+            self._secondary_calls += 1
+            secondary_dets = self.secondary.detect(image)
 
-        # Merge: keep high-conf primary + non-overlapping secondary
-        high_mask = primary_dets.confidence >= self.confidence_threshold
-        high_conf = primary_dets[high_mask]
+            # Save frame + best-available labels for offline training
+            if self.save_frames:
+                save_dets = secondary_dets if len(secondary_dets) > 0 else primary_dets
+                self._save_frame(image, save_dets)
 
-        if len(high_conf) > 0 and len(secondary_dets) > 0:
-            iou = sv.box_iou_batch(high_conf.xyxy, secondary_dets.xyxy)
-            unmatched = iou.max(axis=0) < 0.3
-            sec_only = secondary_dets[unmatched]
-        else:
-            sec_only = secondary_dets
+            # Merge: keep high-conf primary + non-overlapping secondary
+            high_mask = primary_dets.confidence >= self.confidence_threshold
+            high_conf = primary_dets[high_mask]
 
-        if len(high_conf) == 0 and len(sec_only) == 0:
-            return sv.Detections.empty(), np.array([])
+            if len(high_conf) > 0 and len(secondary_dets) > 0:
+                iou = sv.box_iou_batch(high_conf.xyxy, secondary_dets.xyxy)
+                unmatched = iou.max(axis=0) < 0.3
+                sec_only = secondary_dets[unmatched]
+            else:
+                sec_only = secondary_dets
 
-        merged = sv.Detections.merge([high_conf, sec_only])
-        sources = np.concatenate([
-            np.array(['primary'] * len(high_conf)),
-            np.array(['secondary'] * len(sec_only)),
-        ])
-        return merged, sources
+            if len(high_conf) == 0 and len(sec_only) == 0:
+                return sv.Detections.empty(), np.array([])
+
+            merged = sv.Detections.merge([high_conf, sec_only])
+            sources = np.concatenate([
+                np.array(['primary'] * len(high_conf)),
+                np.array(['secondary'] * len(sec_only)),
+            ])
+            return merged, sources
+
+        # Fallback: return primary
+        return primary_dets, np.array(['primary'] * len(primary_dets))
 
     def _save_frame(self, image: np.ndarray, detections: sv.Detections):
         """Save frame + labels to disk for offline training. No Kafka needed."""

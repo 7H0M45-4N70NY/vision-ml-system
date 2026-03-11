@@ -1,0 +1,48 @@
+stages:
+  prepare_data:
+    cmd: python scripts/prepare_data.py --config config/training/base.yaml
+    deps:
+      - scripts/prepare_data.py
+      - data/auto_labeled/
+      - data/low_confidence_frames/
+    outs:
+      - data/prepared/dataset.yaml:
+          cache: false
+      - data/prepared/train/:
+          cache: true
+      - data/prepared/val/:
+          cache: true
+    params:
+      - config/training/base.yaml:
+          - data
+          - model.num_classes
+
+  train:
+    cmd: python scripts/train.py --config config/training/base.yaml --dataset-yaml data/prepared/dataset.yaml
+    deps:
+      - scripts/train.py
+      - src/vision_ml/training/trainer.py
+      - src/vision_ml/training/callbacks.py
+      - data/prepared/dataset.yaml
+    outs:
+      - runs/train/:
+          cache: true
+          persist: true
+    params:
+      - config/training/base.yaml:
+          - training
+          - model
+          - mlflow
+    metrics:
+      - runs/train/metrics.json:
+          cache: false
+
+  evaluate:
+    cmd: python scripts/evaluate.py --config config/training/base.yaml
+    deps:
+      - scripts/evaluate.py
+      - runs/train/
+      - data/prepared/val/
+    metrics:
+      - runs/train/eval_metrics.json:
+          cache: false

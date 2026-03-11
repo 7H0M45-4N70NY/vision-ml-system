@@ -16,7 +16,15 @@ detection:
   detector_type: yolo11n  # 'yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x', 'rfdetr'
   primary_detector: yolo11n    # For dual-detector mode
   secondary_detector: rfdetr   # For dual-detector mode (fallback for low-confidence)
-  use_dual_detector: true     # Set to true to enable dual-detector with fallback
+  # Dual detector modes:
+  #   false:     Hot path — primary detector only, minimal overhead, fastest inference
+  #   inline:    Dual detector runs during inference (real-time), slower but immediate feedback
+  #   batch:     Dual detector disabled during inference; run separately via batch job
+  use_dual_detector: batch     # false | 'inline' | 'batch'
+  dual_confidence_threshold: 0.5  # Primary detections below this → check secondary detector
+  # Low-confidence frame saving (for batch secondary detector analysis)
+  save_low_confidence_frames: true  # Save frames where primary < dual_confidence_threshold
+  low_confidence_dir: data/low_confidence_frames
 
 inference:
   confidence_threshold: 0.35
@@ -57,6 +65,24 @@ annotation:
   heatmap:
     enabled: false
     opacity: 0.5
+
+# Auto-labeling (active learning)
+# Collects low-confidence frames saved by DualDetector and labeled by RF-DETR.
+# Focus: frames where model struggles (failures).
+labeling:
+  enabled: true
+  provider: roboflow          # 'roboflow' or 'local'
+  roboflow_api_key: null      # Set via env var ROBOFLOW_API_KEY
+  roboflow_workspace: thomas-workspace
+  roboflow_project: vision_ml_system
+
+# Drift detection during inference
+drift:
+  enabled: true
+  method: confidence_drop
+  confidence_threshold: 0.3
+  window_size: 500
+  check_interval: 100
 
 # Visitor analytics settings
 analytics:

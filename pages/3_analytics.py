@@ -89,35 +89,42 @@ if view_type == "Summary":
         
         if inference_runs:
             df_runs = pd.DataFrame(inference_runs)
-            avg_secondary_ratio = df_runs['secondary_ratio'].mean() if 'secondary_ratio' in df_runs.columns else 0
+            
+            # Use avg_confidence for model health (works for all runs)
+            if 'avg_confidence' in df_runs.columns:
+                df_runs['avg_confidence'] = df_runs['avg_confidence'].fillna(0)
+                valid_conf = df_runs[df_runs['avg_confidence'] > 0]['avg_confidence']
+                avg_conf = float(valid_conf.mean()) if len(valid_conf) > 0 else 0
+            else:
+                avg_conf = 0
             
             if HAS_PLOTLY:
                 fig = go.Figure(data=[go.Gauge(
                     mode="gauge+number+delta",
-                    value=avg_secondary_ratio * 100,
-                    title={'text': "Avg Secondary Ratio (%)"},
-                    delta={'reference': 20},
+                    value=avg_conf * 100,
+                    title={'text': "Avg Model Confidence (%)"},
+                    delta={'reference': 70},
                     gauge={
                         'axis': {'range': [0, 100]},
                         'bar': {'color': "darkblue"},
                         'steps': [
-                            {'range': [0, 20], 'color': "lightgreen"},
-                            {'range': [20, 50], 'color': "yellow"},
-                            {'range': [50, 100], 'color': "lightcoral"}
+                            {'range': [0, 30], 'color': "lightcoral"},
+                            {'range': [30, 60], 'color': "yellow"},
+                            {'range': [60, 100], 'color': "lightgreen"}
                         ],
                         'threshold': {
                             'line': {'color': "red", 'width': 4},
                             'thickness': 0.75,
-                            'value': 20
+                            'value': 30
                         }
                     }
                 )])
                 fig.update_layout(height=400)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.metric("Avg Secondary Ratio", f"{avg_secondary_ratio:.1%}")
-                if avg_secondary_ratio > 0.20:
-                    st.warning("Model degradation detected")
+                st.metric("Avg Confidence", f"{avg_conf:.1%}")
+                if avg_conf < 0.30:
+                    st.warning("Model degradation detected — confidence below 30%")
                 else:
                     st.success("Model is healthy")
         else:
@@ -133,12 +140,13 @@ elif view_type == "Runs":
         df_runs['timestamp'] = pd.to_datetime(df_runs['timestamp'])
         df_runs = df_runs.sort_values('timestamp', ascending=False)
         
-        # Display table
+        # Display table — select only columns that exist
+        display_cols = ['run_id', 'timestamp', 'source_type', 'total_frames',
+                        'unique_visitors', 'avg_dwell_time_seconds',
+                        'avg_confidence', 'drift_score', 'status']
+        display_cols = [c for c in display_cols if c in df_runs.columns]
         st.dataframe(
-            df_runs[[
-                'run_id', 'timestamp', 'source_type', 'total_frames',
-                'unique_visitors', 'avg_dwell_time_seconds', 'secondary_ratio', 'status'
-            ]],
+            df_runs[display_cols],
             use_container_width=True,
             hide_index=True,
         )

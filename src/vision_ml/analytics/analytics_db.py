@@ -36,9 +36,17 @@ class AnalyticsDB:
                     use_dual_detector BOOLEAN,
                     secondary_ratio REAL,
                     frames_saved INTEGER,
+                    avg_confidence REAL,
+                    drift_score REAL,
                     status TEXT
                 )
             """)
+            # Add columns if upgrading from older schema
+            for col, col_type in [('avg_confidence', 'REAL'), ('drift_score', 'REAL')]:
+                try:
+                    cursor.execute(f"ALTER TABLE inference_runs ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             
             # Visitor analytics table
             cursor.execute("""
@@ -99,8 +107,8 @@ class AnalyticsDB:
                 INSERT INTO inference_runs (
                     run_id, source_type, duration_seconds, total_frames,
                     unique_visitors, avg_dwell_time_seconds, use_dual_detector,
-                    secondary_ratio, frames_saved, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    secondary_ratio, frames_saved, avg_confidence, drift_score, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 run_id,
                 run_data.get('source_type', 'unknown'),
@@ -111,6 +119,8 @@ class AnalyticsDB:
                 run_data.get('use_dual_detector', False),
                 run_data.get('secondary_ratio', 0),
                 run_data.get('frames_saved', 0),
+                run_data.get('avg_confidence', 0),
+                run_data.get('drift_score', 0),
                 'completed'
             ))
             conn.commit()

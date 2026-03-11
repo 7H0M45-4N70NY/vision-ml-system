@@ -2,8 +2,12 @@ import sys
 import os
 import argparse
 import subprocess
+from dotenv import load_dotenv
 
 from datetime import datetime
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -72,7 +76,7 @@ def main():
         })
         print(f"[Script] Logged training event: {event_id}")
 
-    def _run_dvc(cmd: list[str]) -> None:
+    def _run_dvc(cmd) -> None:
         print(f"[DVC] Running: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
 

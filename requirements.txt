@@ -16,9 +16,15 @@ onnxruntime>=1.17.0
 # Experiment Tracking & MLOps
 mlflow>=2.10.0
 dagshub>=0.3.0
+roboflow>=1.1.0
+
+# Data Versioning
+dvc>=3.30.0
+dvc-s3>=3.0.0
 
 # Config Management
 PyYAML>=6.0
+python-dotenv>=1.0.0
 
 # Image & Video Processing
 opencv-python>=4.9.0
@@ -39,3 +45,8 @@ plotly>=5.18.0
 
 # Frontend
 streamlit>=1.28.0
+
+# API
+fastapi>=0.109.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9

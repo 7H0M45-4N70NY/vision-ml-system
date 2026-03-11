@@ -12,9 +12,8 @@ st.markdown("Automatic label generation from low-confidence detections")
 # Sidebar configuration
 with st.sidebar:
     st.header("⚙️ Configuration")
-    
+
     labeler_provider = st.radio("Provider", ["Local", "Roboflow"], horizontal=True)
-    min_confidence = st.slider("Min Confidence for Labels", 0.0, 1.0, 0.7)
 
 
 # Main content
@@ -63,17 +62,19 @@ with col_main:
             if st.button("💾 Export Local", key="export_local"):
                 try:
                     labeler = st.session_state.labeler
+                    label_count = len(labeler.pending_labels)
+                    labeler.provider = 'local'
                     labeler.flush(output_dir='data/auto_labeled')
                     
                     # Save to analytics DB
                     db = AnalyticsDB()
                     db.save_labeling_event({
                         'frames_processed': st.session_state.loaded_count,
-                        'labels_created': len(labeler.pending_labels),
+                        'labels_created': label_count,
                         'provider': 'local',
                     })
                     
-                    st.success("✅ Exported to data/auto_labeled/")
+                    st.success(f"✅ Exported {label_count} labels to data/auto_labeled/")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
         
@@ -81,17 +82,19 @@ with col_main:
             if st.button("☁️ Upload to Roboflow", key="upload_roboflow"):
                 try:
                     labeler = st.session_state.labeler
-                    labeler.flush()  # Uses provider from config
+                    label_count = len(labeler.pending_labels)
+                    labeler.provider = 'roboflow'
+                    labeler.flush()
                     
                     # Save to analytics DB
                     db = AnalyticsDB()
                     db.save_labeling_event({
                         'frames_processed': st.session_state.loaded_count,
-                        'labels_created': len(labeler.pending_labels),
+                        'labels_created': label_count,
                         'provider': 'roboflow',
                     })
                     
-                    st.success("✅ Uploaded to Roboflow!")
+                    st.success(f"✅ Uploaded {label_count} labels to Roboflow!")
                     st.info("👉 Review labels in Roboflow UI, then create new dataset version")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")

@@ -33,11 +33,12 @@ def _detect_drift(db: AnalyticsDB, threshold: float, lookback: int):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.sort_values('timestamp')
 
-    prev_ratio = float(df.iloc[-2].get('secondary_ratio', 0.0))
-    current_ratio = float(df.iloc[-1].get('secondary_ratio', 0.0))
-    drift_score = abs(current_ratio - prev_ratio)
+    # Use confidence-based drift score stored per run
+    latest = df.iloc[-1]
+    drift_score = float(latest.get('drift_score', 0) or 0)
+    avg_conf = float(latest.get('avg_confidence', 0) or 0)
 
-    print(f"[Pipeline] Drift score: {drift_score:.4f} (threshold: {threshold:.4f})")
+    print(f"[Pipeline] Avg confidence: {avg_conf:.4f}  Drift score: {drift_score:.4f}  (threshold: {threshold:.4f})")
     return drift_score > threshold, drift_score
 
 

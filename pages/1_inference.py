@@ -9,14 +9,43 @@ from src.vision_ml.utils.config import load_config
 from src.vision_ml.analytics.analytics_db import AnalyticsDB
 
 st.title("📹 Inference")
-st.markdown("Real-time video processing with dual-detector (YOLO + RF-DETR)")
+st.markdown("Real-time video processing with configurable detector modes")
 
 # Sidebar configuration
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    use_dual = st.checkbox("Use Dual-Detector", value=True)
-    confidence_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.5)
+    # Detector mode selection
+    st.subheader("Detector Mode")
+    detector_mode = st.radio(
+        "Choose detection strategy:",
+        options=[
+            ("🚀 Hot Path (fastest)", False),
+            ("⚡ Inline (real-time dual)", 'inline'),
+            ("📦 Batch (fast + deferred)", 'batch'),
+        ],
+        format_func=lambda x: x[0],
+        horizontal=False,
+    )
+    detector_mode_value = detector_mode[1]
+    
+    # Show mode description
+    mode_desc = {
+        False: "Primary detector only. No secondary overhead. Best for speed.",
+        'inline': "Primary + secondary during inference. Best for accuracy.",
+        'batch': "Primary only; save frames for offline secondary analysis.",
+    }
+    st.caption(f"ℹ️ {mode_desc[detector_mode_value]}")
+    
+    st.divider()
+    
+    # Dual detector parameters
+    confidence_threshold = st.slider("Dual Confidence Threshold", 0.0, 1.0, 0.5,
+                                     help="Primary detections below this → check secondary (inline/batch modes)")
+    save_low_conf_frames = st.checkbox("Save Low-Confidence Frames", value=True,
+                                       help="Save frames for training/batch analysis")
+    
+    st.divider()
     source_type = st.radio("Source Type", ["Video Upload", "Webcam"], horizontal=True)
 
 
@@ -39,12 +68,17 @@ with col_main:
                     try:
                         # Load config
                         config = load_config('config/inference/base.yaml')
-                        config['detection']['use_dual_detector'] = use_dual
+                        config['detection']['use_dual_detector'] = detector_mode_value
                         config['detection']['dual_confidence_threshold'] = confidence_threshold
+                        config['detection']['save_low_confidence_frames'] = save_low_conf_frames
                         
                         # Run inference
                         pipeline = InferencePipeline(config)
                         summary = pipeline.run_offline(video_path)
+                        
+                        # Compute drift metrics via DriftDetector
+                        pipeline.drift_detector.check()
+                        drift_metrics = pipeline.drift_detector.get_metrics()
                         
                         # Save to analytics DB
                         db = AnalyticsDB()
@@ -54,9 +88,11 @@ with col_main:
                             'total_frames': summary.get('total_frames', 0),
                             'unique_visitors': summary.get('unique_visitors', 0),
                             'avg_dwell_time_seconds': summary.get('avg_dwell_time_seconds', 0),
-                            'use_dual_detector': use_dual,
+                            'use_dual_detector': str(detector_mode_value),
                             'secondary_ratio': summary.get('dual_detector', {}).get('secondary_ratio', 0),
                             'frames_saved': summary.get('dual_detector', {}).get('frames_saved', 0),
+                            'avg_confidence': drift_metrics['avg_confidence'],
+                            'drift_score': drift_metrics['drift_score'],
                         })
                         
                         # Save visitor analytics
@@ -73,8 +109,8 @@ with col_main:
                         # Show results
                         st.json(summary)
                         
-                        # Show dual-detector stats if enabled
-                        if use_dual and 'dual_detector' in summary:
+                        # Show dual-detector stats if enabled (inline or batch mode)
+                        if detector_mode_value in ('inline', 'batch') and 'dual_detector' in summary:
                             st.subheader("📊 Dual-Detector Stats")
                             dual_stats = summary['dual_detector']
                             
@@ -121,8 +157,11 @@ with col_main:
             stop_webcam = st.button("⏹️ Stop", key="stop_webcam")
             
             st.markdown("**Settings**")
-            st.write(f"Dual-Detector: {'✅' if use_dual else '❌'}")
+            st.write(f"Tracking: ✅ (ByteTrack)")
+            mode_label = {False: '🚀 Hot', 'inline': '⚡ Inline', 'batch': '📦 Batch'}
+            st.write(f"Detector Mode: {mode_label.get(detector_mode_value, 'Unknown')}")
             st.write(f"Confidence: {confidence_threshold:.2f}")
+            st.write(f"Active Learning: 🎯 (low-conf frames)")
         
         with col_display:
             video_placeholder = st.empty()
@@ -131,8 +170,9 @@ with col_main:
         if start_webcam:
             try:
                 config = load_config('config/inference/base.yaml')
-                config['detection']['use_dual_detector'] = use_dual
+                config['detection']['use_dual_detector'] = detector_mode_value
                 config['detection']['dual_confidence_threshold'] = confidence_threshold
+                config['detection']['save_low_confidence_frames'] = save_low_conf_frames
                 
                 pipeline = InferencePipeline(config)
                 cap = cv2.VideoCapture(0)
@@ -140,7 +180,7 @@ with col_main:
                 if not cap.isOpened():
                     st.error("❌ Could not open webcam. Check camera permissions.")
                 else:
-                    st.success("✅ Webcam opened")
+                    st.success("✅ Webcam opened — tracking + auto-labeling active")
                     
                     frame_count = 0
                     stats_update_interval = 10
@@ -159,28 +199,107 @@ with col_main:
                         if frame_count % stats_update_interval == 0:
                             current_stats = pipeline.analytics.get_summary()
                             
-                            if use_dual and hasattr(pipeline.detector, 'stats'):
-                                dual_stats = pipeline.detector.stats
+                            with stats_placeholder.container():
+                                st.markdown("**📊 Live Stats**")
+                                col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+                                with col_s1:
+                                    st.metric("Frames", frame_count)
+                                with col_s2:
+                                    st.metric("Unique Visitors", current_stats.get('unique_visitors', 0))
+                                with col_s3:
+                                    st.metric("Avg Dwell (s)", f"{current_stats.get('avg_dwell_time_seconds', 0):.1f}")
+                                with col_s4:
+                                    if hasattr(pipeline.detector, 'frames_saved'):
+                                        st.metric("Low-Conf Frames", pipeline.detector.frames_saved)
+                                    else:
+                                        st.metric("Low-Conf Frames", "N/A")
                                 
-                                with stats_placeholder.container():
-                                    st.markdown("**📊 Live Stats**")
-                                    col_s1, col_s2, col_s3 = st.columns(3)
-                                    with col_s1:
-                                        st.metric("Frames", frame_count)
-                                    with col_s2:
-                                        st.metric("Secondary Ratio", f"{dual_stats['secondary_ratio']:.1%}")
-                                    with col_s3:
-                                        st.metric("Visitors", current_stats.get('unique_visitors', 0))
+                                if detector_mode_value == 'inline' and hasattr(pipeline.detector, 'stats'):
+                                    dual_stats = pipeline.detector.stats
+                                    st.metric("Secondary Ratio", f"{dual_stats['secondary_ratio']:.1%}")
                         
                         frame_count += 1
                     
                     cap.release()
-                    st.info("✅ Webcam closed")
+                    
+                    # Compute drift metrics via DriftDetector
+                    pipeline.drift_detector.check()
+                    drift_metrics = pipeline.drift_detector.get_metrics()
+                    
+                    # Save analytics to DB after webcam session
+                    summary = pipeline.analytics.get_summary()
+                    db = AnalyticsDB()
+                    run_id = db.save_inference_run({
+                        'source_type': 'webcam',
+                        'duration_seconds': summary.get('total_frames', 0) / max(pipeline.analytics.fps, 1),
+                        'total_frames': summary.get('total_frames', 0),
+                        'unique_visitors': summary.get('unique_visitors', 0),
+                        'avg_dwell_time_seconds': summary.get('avg_dwell_time_seconds', 0),
+                        'use_dual_detector': str(detector_mode_value),
+                        'avg_confidence': drift_metrics['avg_confidence'],
+                        'drift_score': drift_metrics['drift_score'],
+                    })
+                    if summary.get('dwell_times'):
+                        db.save_visitor_analytics(run_id, summary['dwell_times'])
+                    
+                    # Store pipeline in session state for manual label flush
+                    st.session_state.pipeline = pipeline
+                    st.session_state.webcam_summary = summary
+                    st.session_state.webcam_run_id = run_id
+                    
+                    low_conf_frames = len([f for f in os.listdir('data/low_confidence_frames') if f.endswith('.jpg')]) if os.path.exists('data/low_confidence_frames') else 0
+                    st.info(f"✅ Webcam closed — {summary.get('unique_visitors', 0)} visitors tracked, "
+                            f"{low_conf_frames} low-confidence frames saved for active learning")
             
             except Exception as e:
                 st.error(f"❌ Webcam error: {str(e)}")
                 import traceback
                 st.error(traceback.format_exc())
+        
+        # Active learning: load low-confidence frames and flush for training
+        if os.path.exists('data/low_confidence_frames'):
+            low_conf_files = [f for f in os.listdir('data/low_confidence_frames') if f.endswith('.json')]
+            if low_conf_files:
+                st.divider()
+                st.markdown(f"### 🎯 Active Learning — {len(low_conf_files)} Low-Confidence Frames")
+                st.markdown("These are frames where the primary detector struggled. Load them for training dataset.")
+
+                col_flush_local, col_flush_rf = st.columns(2)
+                with col_flush_local:
+                    if st.button("💾 Load & Export (Local)", key="flush_local"):
+                        with st.spinner("Loading low-confidence frames..."):
+                            try:
+                                labeler = st.session_state.pipeline.auto_labeler if 'pipeline' in st.session_state else __import__('src.vision_ml.labeling.auto_labeler', fromlist=['AutoLabeler']).AutoLabeler(load_config('config/inference/base.yaml'))
+                                count = labeler.load_dual_detector_frames('data/low_confidence_frames')
+                                labeler.provider = 'local'
+                                labeler.flush('data/auto_labeled')
+                                db = AnalyticsDB()
+                                db.save_labeling_event({
+                                    'frames_processed': count,
+                                    'labels_created': count,
+                                    'provider': 'local',
+                                })
+                                st.success(f"✅ Exported {count} low-confidence labels to data/auto_labeled/auto_labels.json")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+
+                with col_flush_rf:
+                    if st.button("☁️ Upload to Roboflow", key="flush_rf"):
+                        with st.spinner("Uploading to Roboflow..."):
+                            try:
+                                labeler = st.session_state.pipeline.auto_labeler if 'pipeline' in st.session_state else __import__('src.vision_ml.labeling.auto_labeler', fromlist=['AutoLabeler']).AutoLabeler(load_config('config/inference/base.yaml'))
+                                count = labeler.load_dual_detector_frames('data/low_confidence_frames')
+                                labeler.provider = 'roboflow'
+                                labeler.flush('data/auto_labeled')
+                                db = AnalyticsDB()
+                                db.save_labeling_event({
+                                    'frames_processed': count,
+                                    'labels_created': count,
+                                    'provider': 'roboflow',
+                                })
+                                st.success(f"✅ Uploaded {count} low-confidence labels to Roboflow")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
 
 with col_info:
     st.subheader("ℹ️ Info")

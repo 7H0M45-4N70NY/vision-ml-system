@@ -27,6 +27,20 @@ Build a **clean, engineered Retail Analytics MVP** that demonstrates:
 
 ## 🚀 Quick Start
 
+### 🐳 Docker (Recommended)
+
+Run the full system (Streamlit Dashboard + API) in a container:
+
+```bash
+# Build and start
+docker-compose up --build
+
+# Access Dashboard: http://localhost:8501
+# Access API Docs: http://localhost:8000/docs
+```
+
+### 🐍 Local Development
+
 ```bash
 # Setup environment
 conda activate ./venv
@@ -35,17 +49,23 @@ pip install -r requirements.txt
 # Create env file from template
 copy .env.example .env
 
-# Run training
-python scripts/train.py --config config/training/base.yaml --trigger manual
+# Run Inference API
+uvicorn src.vision_ml.api.main:app --reload
 
-# Run inference
-python scripts/inference.py --mode offline --source path/to/video.mp4
-
-# View MLflow experiments in terminal
-python scripts/mlflow_cli.py --action experiments
-
-# Launch Streamlit dashboard
+# Run Dashboard (Streamlit)
 streamlit run home.py
+```
+
+### 🧪 Testing & CI/CD
+
+This project uses **GitHub Actions** for automated testing and linting.
+
+```bash
+# Run unit tests
+pytest tests/
+
+# Run linting
+ruff check .
 ```
 
 ## 🏗 Architecture Overview

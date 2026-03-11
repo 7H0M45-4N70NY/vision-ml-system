@@ -14,7 +14,16 @@ except ImportError:
 from src.vision_ml.mlflow_integration import MLflowManager
 from src.vision_ml.analytics.analytics_db import AnalyticsDB
 
-st.set_page_config(page_title="Model Registry", page_icon="🎯", layout="wide")
+
+def _fmt(val, fmt=".4f"):
+    """Safely format a metric value; returns 'N/A' for missing/non-numeric."""
+    if val is None or val == 'N/A':
+        return "N/A"
+    try:
+        return f"{float(val):{fmt}}"
+    except (TypeError, ValueError):
+        return str(val)
+
 
 st.title("🎯 Model Registry & Deployment")
 st.markdown("Manage model versions, stages, and deployments")
@@ -41,7 +50,7 @@ if action_type == "View Models":
     
     try:
         client = mlflow_manager.client
-        registered_models = client.list_registered_models()
+        registered_models = client.search_registered_models()
         
         if registered_models:
             # Summary metrics
@@ -150,7 +159,7 @@ elif action_type == "Promote Model":
     
     try:
         client = mlflow_manager.client
-        registered_models = client.list_registered_models()
+        registered_models = client.search_registered_models()
         
         if registered_models:
             # Select model
@@ -207,7 +216,7 @@ elif action_type == "Promote Model":
                         with col2:
                             st.metric("Current Stage", selected_ver_obj.current_stage)
                         with col3:
-                            st.metric("Val Loss", f"{run.data.metrics.get('val_loss', 'N/A'):.4f}")
+                            st.metric("Val Loss", _fmt(run.data.metrics.get('val_loss')))
                         
                         # Promotion target
                         st.markdown("**Promotion Target**")
@@ -230,14 +239,14 @@ elif action_type == "Promote Model":
                             comparison_data = {
                                 "Metric": ["Val Loss", "Accuracy", "Train Loss"],
                                 "Current (v" + str(prod_version.version) + ")": [
-                                    f"{prod_run.data.metrics.get('val_loss', 'N/A'):.4f}",
-                                    f"{prod_run.data.metrics.get('accuracy', 'N/A'):.4f}",
-                                    f"{prod_run.data.metrics.get('train_loss', 'N/A'):.4f}",
+                                    _fmt(prod_run.data.metrics.get('val_loss')),
+                                    _fmt(prod_run.data.metrics.get('accuracy')),
+                                    _fmt(prod_run.data.metrics.get('train_loss')),
                                 ],
                                 "Candidate (v" + str(selected_version) + ")": [
-                                    f"{run.data.metrics.get('val_loss', 'N/A'):.4f}",
-                                    f"{run.data.metrics.get('accuracy', 'N/A'):.4f}",
-                                    f"{run.data.metrics.get('train_loss', 'N/A'):.4f}",
+                                    _fmt(run.data.metrics.get('val_loss')),
+                                    _fmt(run.data.metrics.get('accuracy')),
+                                    _fmt(run.data.metrics.get('train_loss')),
                                 ],
                             }
                             
@@ -294,7 +303,7 @@ elif action_type == "Compare Versions":
     
     try:
         client = mlflow_manager.client
-        registered_models = client.list_registered_models()
+        registered_models = client.search_registered_models()
         
         if registered_models:
             selected_model_name = st.selectbox(
@@ -335,20 +344,20 @@ elif action_type == "Compare Versions":
                     comparison_data = {
                         "Metric": ["Val Loss", "Train Loss", "Accuracy", "Precision", "Recall", "F1 Score"],
                         f"v{version1}": [
-                            f"{run1.data.metrics.get('val_loss', 'N/A'):.4f}",
-                            f"{run1.data.metrics.get('train_loss', 'N/A'):.4f}",
-                            f"{run1.data.metrics.get('accuracy', 'N/A'):.4f}",
-                            f"{run1.data.metrics.get('precision', 'N/A'):.4f}",
-                            f"{run1.data.metrics.get('recall', 'N/A'):.4f}",
-                            f"{run1.data.metrics.get('f1_score', 'N/A'):.4f}",
+                            _fmt(run1.data.metrics.get('val_loss')),
+                            _fmt(run1.data.metrics.get('train_loss')),
+                            _fmt(run1.data.metrics.get('accuracy')),
+                            _fmt(run1.data.metrics.get('precision')),
+                            _fmt(run1.data.metrics.get('recall')),
+                            _fmt(run1.data.metrics.get('f1_score')),
                         ],
                         f"v{version2}": [
-                            f"{run2.data.metrics.get('val_loss', 'N/A'):.4f}",
-                            f"{run2.data.metrics.get('train_loss', 'N/A'):.4f}",
-                            f"{run2.data.metrics.get('accuracy', 'N/A'):.4f}",
-                            f"{run2.data.metrics.get('precision', 'N/A'):.4f}",
-                            f"{run2.data.metrics.get('recall', 'N/A'):.4f}",
-                            f"{run2.data.metrics.get('f1_score', 'N/A'):.4f}",
+                            _fmt(run2.data.metrics.get('val_loss')),
+                            _fmt(run2.data.metrics.get('train_loss')),
+                            _fmt(run2.data.metrics.get('accuracy')),
+                            _fmt(run2.data.metrics.get('precision')),
+                            _fmt(run2.data.metrics.get('recall')),
+                            _fmt(run2.data.metrics.get('f1_score')),
                         ],
                     }
                     

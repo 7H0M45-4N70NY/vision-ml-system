@@ -15,7 +15,16 @@ except ImportError:
 from src.vision_ml.mlflow_integration import MLflowManager
 from src.vision_ml.analytics.analytics_db import AnalyticsDB
 
-st.set_page_config(page_title="MLflow Experiments", page_icon="📈", layout="wide")
+
+def _fmt(val, fmt=".4f"):
+    """Safely format a metric value; returns 'N/A' for missing/non-numeric."""
+    if val is None or val == 'N/A':
+        return "N/A"
+    try:
+        return f"{float(val):{fmt}}"
+    except (TypeError, ValueError):
+        return str(val)
+
 
 st.title("📈 MLflow Experiments")
 st.markdown("Track, compare, and manage ML experiments with DagsHub")
@@ -196,9 +205,9 @@ elif view_type == "Runs":
                     duration = (run.info.end_time - run.info.start_time) // 1000 if run.info.end_time else "Running"
                     st.metric("Duration (s)", duration)
                 with col3:
-                    st.metric("Val Loss", f"{run.data.metrics.get('val_loss', 'N/A'):.4f}")
+                    st.metric("Val Loss", _fmt(run.data.metrics.get('val_loss')))
                 with col4:
-                    st.metric("Accuracy", f"{run.data.metrics.get('accuracy', 'N/A'):.4f}")
+                    st.metric("Accuracy", _fmt(run.data.metrics.get('accuracy')))
                 
                 # Parameters
                 st.markdown("**Hyperparameters**")
@@ -211,7 +220,7 @@ elif view_type == "Runs":
                 # Metrics
                 st.markdown("**Metrics**")
                 metrics_df = pd.DataFrame([
-                    {"Metric": k, "Value": f"{v:.4f}"}
+                    {"Metric": k, "Value": _fmt(v)}
                     for k, v in run.data.metrics.items()
                 ])
                 st.dataframe(metrics_df, use_container_width=True, hide_index=True)
@@ -302,7 +311,7 @@ elif view_type == "Model Registry":
     
     try:
         client = mlflow_manager.client
-        registered_models = client.list_registered_models()
+        registered_models = client.search_registered_models()
         
         if registered_models:
             for model in registered_models:

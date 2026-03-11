@@ -52,13 +52,10 @@ detection:
   secondary_detector: rfdetr   # Accurate detector for low-confidence cases
   use_dual_detector: false     # Enable for pseudo-label generation
 
-# Enhanced auto-labeling pipeline with dual-detector support
+# Auto-labeling via active learning (low-confidence frames from inference)
 labeling:
   enabled: false
   provider: roboflow  # 'roboflow' or 'local'
   roboflow_api_key: null  # Set via env var ROBOFLOW_API_KEY
-  roboflow_workspace: null
-  roboflow_project: null
-  auto_label_confidence: 0.7  # Only auto-label if detection confidence > this
-  secondary_confidence_boost: 0.1  # Boost confidence for secondary detector predictions
-  secondary_detection_threshold: 0.2  # If >20% detections from secondary, trigger retrain
+  roboflow_workspace: thomas-workspace
+  roboflow_project: vision_ml_system

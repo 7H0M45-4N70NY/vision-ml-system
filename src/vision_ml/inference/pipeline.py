@@ -8,31 +8,46 @@ from ..detection.dual_detector import DualDetector
 from ..tracking.tracker_factory import TrackerFactory
 from ..annotation.annotator import FrameAnnotator
 from ..analytics.visitor_analytics import VisitorAnalytics
+from ..labeling.auto_labeler import AutoLabeler
+from ..training.drift_detector import DriftDetector
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class InferencePipeline:
     def __init__(self, config: dict):
         self.config = config
         use_dual = config.get('detection', {}).get('use_dual_detector', False)
+        detector_type = config.get('detection', {}).get('detector_type', 'yolo11n')
+
+        logger.info(f"Initializing InferencePipeline (mode={use_dual}, detector={detector_type})")
 
         # Detector: single (cached singleton) or dual (with frame collection)
         if use_dual:
+            logger.info(f"Using DualDetector (mode={use_dual})")
             self.detector = DualDetector(config)
         else:
+            logger.info(f"Using primary detector: {detector_type}")
             self.detector = DetectorFactory.from_config(config)
 
         # Tracker: always a new stateful instance
         if config.get('tracking', {}).get('enabled', True):
             self.tracker = TrackerFactory.from_config(config)
+            logger.info("Tracker enabled")
         else:
             self.tracker = None
+            logger.info("Tracker disabled")
 
         self.annotator = FrameAnnotator(config)
         self.analytics = VisitorAnalytics(config)
+        self.auto_labeler = AutoLabeler(config)
+        self.drift_detector = DriftDetector(config)
 
         self.mode = config.get('mode', {}).get('type', 'offline')
         self.output_dir = config.get('mode', {}).get('output_dir', 'runs/inference')
         os.makedirs(self.output_dir, exist_ok=True)
+        logger.info(f"Pipeline initialized successfully (output_dir={self.output_dir})")
 
     def process_frame(self, frame: np.ndarray, frame_idx: int = 0) -> tuple:
         detections = self.detector.detect(frame)
@@ -44,6 +59,13 @@ class InferencePipeline:
             detections.tracker_id if detections.tracker_id is not None else [],
             frame_idx,
         )
+
+        # Collect auto-labels from high-confidence detections
+        self.auto_labeler.collect(frame, detections, image_id=f"frame_{frame_idx}")
+
+        # Record confidences for drift detection
+        if detections.confidence is not None and len(detections) > 0:
+            self.drift_detector.record(detections.confidence.tolist())
 
         labels = FrameAnnotator.build_labels(detections)
         annotated = self.annotator.annotate(frame, detections, labels)
@@ -147,15 +169,30 @@ class InferencePipeline:
                 raise ValueError("Offline mode requires a video source path in config or argument.")
             return self.run_offline(str(src))
 
+    def flush_labels(self, output_dir: str = 'data/auto_labeled'):
+        """Manually flush collected auto-labels to local or Roboflow."""
+        count = len(self.auto_labeler.pending_labels)
+        if count > 0:
+            self.auto_labeler.flush(output_dir)
+            print(f"[Pipeline] Flushed {count} auto-labels")
+        else:
+            print("[Pipeline] No pending labels to flush")
+        return count
+
     def reset(self):
         if self.tracker is not None:
             self.tracker.reset()
         self.analytics.reset()
+        self.drift_detector.reset()
 
     def _save_analytics(self, summary: dict):
         # Append dual-detector stats if available
         if isinstance(self.detector, DualDetector):
             summary['dual_detector'] = self.detector.stats
+
+        # Append drift metrics
+        self.drift_detector.check()
+        summary['drift'] = self.drift_detector.get_metrics()
 
         if self.config.get('analytics', {}).get('output_json', True):
             out_path = os.path.join(self.output_dir, 'analytics.json')
