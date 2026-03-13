@@ -109,17 +109,3 @@ def get_logger(name: str) -> logging.Logger:
                 console_logger.warning(f"Failed to setup file logging: {e}")
 
     return logger
-
-
-# Root logger setup (optional, for catching third-party logs)
-root_logger = logging.getLogger()
-if not root_logger.handlers:
-    root_logger.setLevel(LoggerConfig.LEVEL)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(LoggerConfig.CONSOLE_LEVEL)
-    formatter = logging.Formatter(
-        LoggerConfig.FORMAT,
-        datefmt=LoggerConfig.DATE_FORMAT
-    )
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)

@@ -38,7 +38,7 @@ drift:
 mlflow:
   experiment_name: visitor_analytics_training
   run_name: yolo11n_baseline
-  tracking_uri: https://dagshub.com/7H0M45-4N70NY/vision-ml-system.mlflow
+  tracking_uri: https://dagshub.com/panikeradom/vision-ml-system.mlflow
   log_params: true
   log_metrics: true
   log_model: true
