@@ -4,14 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, X, Tag, Code } from "lucide-react";
-import { mockFrames } from "./GalleryGrid";
+import { useState } from "react";
+import { type TriageFrame } from "./GalleryGrid";
 
 interface InspectorPanelProps {
-  activeId: string | null;
+  frame: TriageFrame | null;
 }
 
-export function InspectorPanel({ activeId }: InspectorPanelProps) {
-  const frame = mockFrames.find(f => f.id === activeId);
+export function InspectorPanel({ frame }: InspectorPanelProps) {
 
   if (!frame) {
     return (
@@ -26,9 +26,13 @@ export function InspectorPanel({ activeId }: InspectorPanelProps) {
     id: frame.id,
     timestamp: frame.timestamp,
     reason: frame.reason,
-    trigger_confidence: parseFloat(frame.confidence),
+    trigger_confidence: typeof frame.confidence === 'string' ? parseFloat(frame.confidence) : frame.confidence,
     detections: [
-      { class: frame.class, conf: parseFloat(frame.confidence), bbox: [120, 45, 230, 400] }
+      { 
+        class: frame.class, 
+        conf: typeof frame.confidence === 'string' ? parseFloat(frame.confidence) : frame.confidence, 
+        bbox: [120, 45, 230, 400] 
+      }
     ],
     telemetry: {
       fps_at_capture: 28.5,
@@ -47,6 +51,15 @@ export function InspectorPanel({ activeId }: InspectorPanelProps) {
         <div className="p-4 space-y-6">
           <div className="aspect-video bg-zinc-900 rounded-md border border-zinc-800 flex items-center justify-center relative overflow-hidden">
              {/* Thumbnail */}
+             {frame.imageUrl ? (
+                <img 
+                    src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${frame.imageUrl}`} 
+                    alt={frame.id}
+                    className="w-full h-full object-cover opacity-60"
+                />
+             ) : (
+                <Code className="w-8 h-8 text-zinc-800" />
+             )}
              <div className="absolute inset-x-[15%] inset-y-[10%] border-2 border-primary border-dashed">
                  <div className="absolute -top-6 left-0 bg-primary text-primary-foreground text-[10px] px-1 font-mono">
                     {frame.class} {frame.confidence}

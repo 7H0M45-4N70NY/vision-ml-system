@@ -4,7 +4,7 @@ import { useStore } from "@/store/useStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 // Mock data for initial rendering until WebSocket is hooked up
 const mockChartData = Array.from({ length: 20 }, (_, i) => ({
@@ -13,23 +13,33 @@ const mockChartData = Array.from({ length: 20 }, (_, i) => ({
 }));
 
 export function TelemetryPanel() {
-  const { fps, latency, objectCount } = useStore();
-  
-  const [logs, setLogs] = useState<string[]>([
-    "[INFO] System initialized. Waiting for stream...",
-  ]);
+  const { fps, latency, objectCount, isConnected } = useStore();
+  const [logs, setLogs] = useState<string[]>([]);
+  const previousObjectCount = React.useRef(0);
 
-  // Just to simulate incoming logs for now
+  // Generate traceability events when active objects change
   useEffect(() => {
-    const interval = setInterval(() => {
-        setLogs(prev => {
-            const newLogs = [...prev, `[INFO] Drift check passed: ${(Math.random() * 0.2).toFixed(2)}`];
-            if (newLogs.length > 50) newLogs.shift();
-            return newLogs;
-        });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (objectCount !== previousObjectCount.current) {
+        const diff = objectCount - previousObjectCount.current;
+        const timestamp = new Date().toISOString().split('T')[1].slice(0, 11); // HH:MM:SS.mmm
+        
+        let message = '';
+        if (diff > 0) {
+            message = `[EVENT] +${diff} Object(s) detected. Total active: ${objectCount}`;
+        } else if (diff < 0) {
+            message = `[EVENT] ${diff} Object(s) lost. Total active: ${objectCount}`;
+        }
+        
+        if (message) {
+            setLogs(prev => {
+                const newLogs = [ `${timestamp} ${message}`, ...prev];
+                return newLogs.slice(0, 50); // Keep last 50
+            });
+        }
+        
+        previousObjectCount.current = objectCount;
+    }
+  }, [objectCount]);
 
   return (
     <div className="flex flex-col gap-4 w-full xl:w-80 shrink-0 overflow-y-visible xl:overflow-y-auto xl:pl-2">
@@ -74,14 +84,23 @@ export function TelemetryPanel() {
       </Card>
 
       <Card className="bg-zinc-950/50 border-zinc-800 flex-1 flex flex-col min-h-[200px]">
-        <CardHeader className="py-3 px-4 border-b border-zinc-800/50">
-          <CardTitle className="text-xs font-medium font-mono text-zinc-400">System Logs</CardTitle>
+        <CardHeader className="py-3 px-4 border-b border-zinc-800/50 flex flex-row items-center justify-between">
+          <CardTitle className="text-xs font-medium font-mono text-zinc-400">Live Event Traceability</CardTitle>
+          <div className="flex items-center gap-1.5">
+              <div className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              <span className="text-[10px] text-zinc-500 uppercase">{isConnected ? 'Recording' : 'Offline'}</span>
+          </div>
         </CardHeader>
         <CardContent className="p-0 flex-1 relative">
           <ScrollArea className="absolute inset-0 p-4">
             <div className="space-y-2 font-mono text-[10px] text-zinc-300 leading-tight">
+              {logs.length === 0 && <span className="text-zinc-600 italic">Waiting for events...</span>}
               {logs.map((log, i) => (
-                <div key={i} className={log.includes("WARN") ? "text-amber-400" : log.includes("ERR") ? "text-rose-400" : "text-zinc-400"}>
+                <div key={i} className={
+                    log.includes("lost") ? "text-amber-500" : 
+                    log.includes("+") ? "text-emerald-400" : 
+                    "text-zinc-400"
+                }>
                   {log}
                 </div>
               ))}

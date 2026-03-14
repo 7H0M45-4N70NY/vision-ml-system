@@ -6,6 +6,15 @@ class ConfigUpdate(BaseModel):
     iou_threshold: Optional[float] = None
     dual_mode: Optional[bool] = None
 
+class StreamConfig(BaseModel):
+    source: str # "0", "1", "rtsp://...", "file.mp4"
+
+class PipelineToggles(BaseModel):
+    enable_detection: Optional[bool] = None
+    enable_tracking: Optional[bool] = None
+    show_annotations: Optional[bool] = None
+    stream_active: Optional[bool] = None
+
 class TriageAction(BaseModel):
     frame_ids: List[str]
     action: str  # accept, reject, label

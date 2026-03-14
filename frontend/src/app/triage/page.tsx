@@ -2,13 +2,32 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { FilterBar } from "@/components/triage/FilterBar";
-import { GalleryGrid, mockFrames } from "@/components/triage/GalleryGrid";
+import { GalleryGrid, type TriageFrame } from "@/components/triage/GalleryGrid";
 import { InspectorPanel } from "@/components/triage/InspectorPanel";
 import { toast } from "sonner";
 
 export default function TriagePage() {
+  const [frames, setFrames] = useState<TriageFrame[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(mockFrames[0]?.id || null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Fetch live frames from the backend
+  useEffect(() => {
+    const fetchFrames = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/triage/frames`);
+        const data = await res.json();
+        setFrames(data.frames || []);
+        if (data.frames?.length > 0) setActiveId(data.frames[0].id);
+      } catch (e) {
+        toast.error("Failed to load triage frames");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchFrames();
+  }, []);
 
   const handleToggleSelection = useCallback((id: string, multi: boolean) => {
     setActiveId(id);
@@ -52,14 +71,21 @@ export default function TriagePage() {
 
       <div className="flex flex-1 min-h-0 gap-4">
          {/* Main Gallery Area */}
-         <GalleryGrid 
-           selectedIds={selectedIds} 
-           onToggleSelection={handleToggleSelection} 
-           activeId={activeId}
-         />
+         {loading ? (
+             <div className="flex-1 flex items-center justify-center text-zinc-500">
+                 Scanning frame storage...
+             </div>
+         ) : (
+             <GalleryGrid 
+               frames={frames}
+               selectedIds={selectedIds} 
+               onToggleSelection={handleToggleSelection} 
+               activeId={activeId}
+             />
+         )}
 
          {/* Sidebar Inspector */}
-         <InspectorPanel activeId={activeId} />
+         <InspectorPanel frame={frames.find(f => f.id === activeId) || null} />
       </div>
     </div>
   );

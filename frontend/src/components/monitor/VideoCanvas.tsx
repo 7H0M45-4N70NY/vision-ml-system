@@ -32,7 +32,7 @@ export function VideoCanvas() {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             setDimensions({ width, height });
-        }, 100); // 100ms debounce
+        }, 100);
       }
     });
 
@@ -43,65 +43,46 @@ export function VideoCanvas() {
     };
   }, []);
 
-  // Set mock telemetry
+  // Connect to actual WebSocket
   useEffect(() => {
-     setTelemetry({ objectCount: mockBBoxes.length, fps: 30, latency: 120, gpuUtilization: 45, modelLoaded: true, isConnected: true });
+     let wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/live-stream";
+     const socket = new WebSocket(wsUrl);
+
+     socket.onopen = () => {
+       setTelemetry({ isConnected: true, modelLoaded: true });
+     };
+
+     socket.onmessage = (event) => {
+       try {
+         const data = JSON.parse(event.data);
+         setTelemetry(data);
+       } catch (err) {
+         console.error("Telemetry parse error", err);
+       }
+     };
+
+     socket.onclose = () => {
+       setTelemetry({ isConnected: false });
+     };
+
+     return () => {
+       socket.close();
+     };
   }, [setTelemetry]);
 
   return (
     <div className="flex-1 bg-zinc-900 rounded-lg overflow-hidden relative border border-zinc-800" ref={containerRef}>
-      {/* Stream Placeholder (will be replaced by an <img> tag connected to MJPEG stream or a Canvas) */}
-      <div className="absolute inset-0 flex items-center justify-center text-zinc-600 bg-zinc-950">
-        <div className="text-center">
-            <div className="w-16 h-16 rounded-full border-t-2 border-r-2 border-zinc-600 animate-spin mx-auto mb-4" />
-            <p className="text-sm font-mono tracking-widest uppercase">Waiting for Stream</p>
-        </div>
+      {/* Live Stream MJPEG Feed */}
+      <img
+          src={process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/video_feed` : "http://localhost:8000/video_feed"}
+          alt="Live Video Stream"
+          className="absolute inset-0 w-full h-full object-contain bg-zinc-950"
+      />
+      
+      {/* Connection Offline Indicator */}
+      <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+         <span className="text-xs text-zinc-400">Live Inference Feed</span>
       </div>
-
-      {/* SVG Overlay for Bounding Boxes */}
-      {dimensions.width > 0 && (
-        <svg 
-          className="absolute inset-0 pointer-events-none" 
-          width={dimensions.width} 
-          height={dimensions.height}
-          viewBox="0 0 1280 720" // Assuming 720p stream
-          preserveAspectRatio="xMidYMid slice"
-        >
-          {mockBBoxes.map((box) => (
-            <g key={box.id}>
-              {/* Box */}
-              <rect
-                x={box.x1}
-                y={box.y1}
-                width={box.x2 - box.x1}
-                height={box.y2 - box.y1}
-                fill="none"
-                stroke="oklch(0.708 0 0)" // Primary color approximation
-                strokeWidth="2"
-                className="transition-all duration-75"
-              />
-              {/* Label Background */}
-              <rect
-                x={box.x1}
-                y={box.y1 - 24}
-                width="140"
-                height="24"
-                fill="oklch(0.708 0 0)"
-                opacity={0.9}
-              />
-              {/* Label Text */}
-              <text
-                x={box.x1 + 6}
-                y={box.y1 - 8}
-                fill="black"
-                className="text-xs font-mono font-bold"
-              >
-                {box.class} {box.id} ({box.confidence.toFixed(2)})
-              </text>
-            </g>
-          ))}
-        </svg>
-      )}
     </div>
   );
 }

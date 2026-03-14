@@ -5,26 +5,32 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Mock Data
-export const mockFrames = Array.from({ length: 12 }, (_, i) => ({
-  id: `frame-${i + 1}`,
-  timestamp: Date.now() - Math.random() * 10000000,
-  reason: i % 3 === 0 ? "Ambiguous Overlap" : "Low Confidence",
-  confidence: (0.3 + Math.random() * 0.2).toFixed(2),
-  class: "person",
-}));
+export interface TriageFrame {
+  id: string;
+  timestamp: number;
+  reason: string;
+  confidence: string | number;
+  class: string;
+  imageUrl?: string;
+}
 
 interface GalleryGridProps {
+  frames: TriageFrame[];
   selectedIds: string[];
   onToggleSelection: (id: string, multi: boolean) => void;
   activeId: string | null;
 }
 
-export function GalleryGrid({ selectedIds, onToggleSelection, activeId }: GalleryGridProps) {
+export function GalleryGrid({ frames, selectedIds, onToggleSelection, activeId }: GalleryGridProps) {
   return (
     <div className="flex-1 overflow-y-auto pr-2 rounded-lg">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-        {mockFrames.map((frame) => {
+        {frames.length === 0 && (
+            <div className="col-span-full h-40 flex items-center justify-center text-zinc-500 italic">
+                No frames captured yet...
+            </div>
+        )}
+        {frames.map((frame) => {
           const isSelected = selectedIds.includes(frame.id);
           const isActive = activeId === frame.id;
           
@@ -46,13 +52,22 @@ export function GalleryGrid({ selectedIds, onToggleSelection, activeId }: Galler
                 isActive && !isSelected ? "border-zinc-500" : ""
               )}
             >
-              {/* Image Placeholder */}
+              {/* Image Rendering */}
               <div className="aspect-video bg-zinc-950 flex flex-col items-center justify-center relative">
-                 <ImageIcon className="w-8 h-8 text-zinc-800 mb-2" />
-                 <span className="text-[10px] text-zinc-700 font-mono tracking-widest">{frame.id}</span>
+                 {frame.imageUrl ? (
+                     <img 
+                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${frame.imageUrl}`} 
+                        alt={frame.id}
+                        className="w-full h-full object-cover"
+                     />
+                 ) : (
+                     <ImageIcon className="w-8 h-8 text-zinc-800 mb-2" />
+                 )}
+                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-t from-zinc-950/80 to-transparent pointer-events-none" />
+                 <span className="absolute bottom-1 right-2 text-[10px] text-zinc-400 font-mono tracking-widest">{frame.id}</span>
                  
                  {isSelected && (
-                   <div className="absolute top-2 right-2 text-primary bg-zinc-950 rounded-full border border-primary">
+                   <div className="absolute top-2 right-2 text-primary bg-zinc-950 rounded-full border border-primary z-10">
                       <CheckCircle2 className="w-5 h-5" />
                    </div>
                  )}
