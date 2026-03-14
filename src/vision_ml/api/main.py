@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import shutil
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from src.vision_ml.inference.pipeline import InferencePipeline
 from src.vision_ml.utils.config import load_config
@@ -52,19 +52,18 @@ async def predict_video(file: UploadFile = File(...), background_tasks: Backgrou
     Upload a video file for offline inference.
     Returns the analytics summary.
     """
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
     temp_path = f"temp_{file.filename}"
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
-        # Run inference (blocking for simplicity in MVP, should be async task queue in prod)
-        if pipeline is None:
-             raise HTTPException(status_code=503, detail="Pipeline not initialized")
-             
+
         summary = pipeline.run_offline(temp_path)
-        
+
         return summary
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
