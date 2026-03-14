@@ -1,6 +1,10 @@
 import numpy as np
 import supervision as sv
 
+from ..logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class FrameAnnotator:
     def __init__(self, config: dict):
@@ -16,15 +20,15 @@ class FrameAnnotator:
                 self.box_annotator = sv.BoundingBoxAnnotator(
                     thickness=ann_cfg.get('bounding_box', {}).get('thickness', 2),
                 )
-                print("[FrameAnnotator] Using BoundingBoxAnnotator")
+                logger.info("Using BoundingBoxAnnotator")
             except AttributeError:
                 try:
                     self.box_annotator = sv.BoxAnnotator(
                         thickness=ann_cfg.get('bounding_box', {}).get('thickness', 2),
                     )
-                    print("[FrameAnnotator] Using BoxAnnotator (legacy)")
+                    logger.info("Using BoxAnnotator (legacy)")
                 except AttributeError:
-                    print("[FrameAnnotator] No box annotator available")
+                    logger.warning("No box annotator available")
 
         if ann_cfg.get('label', {}).get('enabled', True):
             try:
@@ -33,7 +37,7 @@ class FrameAnnotator:
                     text_thickness=ann_cfg.get('label', {}).get('text_thickness', 1),
                 )
             except Exception as e:
-                print(f"[FrameAnnotator] LabelAnnotator error: {e}")
+                logger.warning(f"LabelAnnotator error: {e}")
 
         if ann_cfg.get('trace', {}).get('enabled', False):
             try:
@@ -41,7 +45,7 @@ class FrameAnnotator:
                     trace_length=ann_cfg.get('trace', {}).get('trace_length', 60),
                 )
             except Exception as e:
-                print(f"[FrameAnnotator] TraceAnnotator error: {e}")
+                logger.warning(f"TraceAnnotator error: {e}")
 
     def annotate(
         self,

@@ -8,6 +8,9 @@ Singleton caching handled by DetectorFactory.
 import numpy as np
 import supervision as sv
 from .base import BaseDetector
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RFDETRDetector(BaseDetector):
@@ -28,7 +31,7 @@ class RFDETRDetector(BaseDetector):
         try:
             from rfdetr import RFDETRBase
             self.model = RFDETRBase()
-            print("[RFDETRDetector] Loaded (native precision)")
+            logger.info("Loaded (native precision)")
         except ImportError:
             raise ImportError("rfdetr not installed. pip install rfdetr")
 

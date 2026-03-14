@@ -10,7 +10,7 @@ Configuration is centralized here, making it easy to:
 - Switch backends without changing client code
 
 Usage:
-    from src.vision_ml.logging import get_logger
+    from .logger import get_logger
 
     logger = get_logger(__name__)
     logger.info("Application started")

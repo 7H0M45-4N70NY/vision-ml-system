@@ -31,6 +31,10 @@ that together give a complete degradation picture.
 from collections import deque
 from typing import Dict
 
+from ..logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class DriftDetector:
     """Detects **model drift** by monitoring inference confidence scores.
@@ -92,8 +96,8 @@ class DriftDetector:
             avg_conf = sum(self.confidence_buffer) / len(self.confidence_buffer)
             self.drift_detected = avg_conf < self.threshold
             if self.drift_detected:
-                print(
-                    f"[DriftDetector] MODEL DRIFT DETECTED: "
+                logger.warning(
+                    f"MODEL DRIFT DETECTED: "
                     f"avg confidence {avg_conf:.3f} < threshold {self.threshold}"
                 )
             return self.drift_detected

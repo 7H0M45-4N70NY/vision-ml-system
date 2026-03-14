@@ -1,6 +1,9 @@
 import os
 import mlflow
 import dagshub
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class MLflowCallback:
@@ -47,7 +50,11 @@ class MLflowCallback:
         safe = {}
         for k, v in metrics.items():
             try:
-                safe[k] = float(v)
+                # Convert to float and ensure it's a finite number
+                float_val = float(v)
+                if float_val == float('inf') or float_val == float('-inf') or float_val != float_val:
+                    continue  # Skip NaN and infinite values
+                safe[k] = float_val
             except (TypeError, ValueError):
                 continue
         if safe:
@@ -71,9 +78,9 @@ class MLflowCallback:
             artifact_uri = f"runs:/{run_id}/registered_model/{os.path.basename(model_path)}"
             try:
                 mlflow.register_model(artifact_uri, model_name)
-                print(f"Model registered as '{model_name}'")
+                logger.info(f"Model registered as '{model_name}'")
             except Exception as e:
-                print(f"Model registration note: {e}")
+                logger.warning(f"Model registration note: {e}")
 
     def set_tag(self, key: str, value: str):
         mlflow.set_tag(key, value)

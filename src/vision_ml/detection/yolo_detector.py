@@ -2,6 +2,9 @@ import numpy as np
 import supervision as sv
 from ultralytics import YOLO
 from .base import BaseDetector
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class YOLODetector(BaseDetector):
@@ -50,12 +53,12 @@ class YOLODetector(BaseDetector):
         if self.precision == 'fp16' and is_gpu:
             self.model = YOLO(name)
             self._half = True
-            print(f"[YOLODetector] FP16 on {self.device}")
+            logger.info(f"FP16 on {self.device}")
         else:
             if self.precision == 'fp16' and not is_gpu:
-                print("[YOLODetector] FP16 requires CUDA. Using FP32 on CPU.")
+                logger.warning("FP16 requires CUDA. Using FP32 on CPU.")
             self.model = YOLO(name)
-            print(f"[YOLODetector] FP32 on {self.device} (cached in ~/.cache/yolo/)")
+            logger.info(f"FP32 on {self.device} (cached in ~/.cache/yolo/)")
 
     def load_model(self, config: dict = None) -> None:
         if config:
