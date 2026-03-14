@@ -1,7 +1,15 @@
+# --- Vision ML System: Inference Pipeline ---
+"""Orchestrator for the core video analytics flow.
+
+Coordinates frame extraction, object detection, multi-object tracking,
+visitor analytics, active learning collection, and drift monitoring.
+"""
+
 import os
 import json
 import cv2
 import numpy as np
+from typing import Tuple, Dict, Any, Optional
 
 from ..detection.detector_factory import DetectorFactory
 from ..detection.dual_detector import DualDetector
@@ -16,7 +24,22 @@ logger = get_logger(__name__)
 
 
 class InferencePipeline:
-    def __init__(self, config: dict):
+    """Main entry point for running inference on video files or live streams.
+
+    This class encapsulates the entire vision lifecycle:
+    1. Detection (YOLO/RF-DETR)
+    2. Tracking (ByteTrack)
+    3. Analytics (Visitor counts, dwell time)
+    4. Feedback Loops (Auto-labeling, drift detection)
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        """Initializes the pipeline with a unified configuration dictionary.
+
+        Args:
+            config: Configuration dictionary containing sections for detection,
+                tracking, analytics, and labeling.
+        """
         self.config = config
         use_dual = config.get('detection', {}).get('use_dual_detector', False)
         detector_type = config.get('detection', {}).get('detector_type', 'yolo11n')
@@ -49,7 +72,16 @@ class InferencePipeline:
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"Pipeline initialized successfully (output_dir={self.output_dir})")
 
-    def process_frame(self, frame: np.ndarray, frame_idx: int = 0) -> tuple:
+    def process_frame(self, frame: np.ndarray, frame_idx: int = 0) -> Tuple[Any, np.ndarray]:
+        """Processes a single frame through the entire vision pipeline.
+
+        Args:
+            frame: Raw BGR image from OpenCV.
+            frame_idx: The current frame sequence number.
+
+        Returns:
+            A tuple containing (supervision.Detections, annotated_frame).
+        """
         detections = self.detector.detect(frame)
 
         if self.tracker is not None:
@@ -174,9 +206,9 @@ class InferencePipeline:
         count = len(self.auto_labeler.pending_labels)
         if count > 0:
             self.auto_labeler.flush(output_dir)
-            print(f"[Pipeline] Flushed {count} auto-labels")
+            logger.info(f"Flushed {count} auto-labels")
         else:
-            print("[Pipeline] No pending labels to flush")
+            logger.info("No pending labels to flush")
         return count
 
     def reset(self):
@@ -198,4 +230,4 @@ class InferencePipeline:
             out_path = os.path.join(self.output_dir, 'analytics.json')
             with open(out_path, 'w') as f:
                 json.dump(summary, f, indent=2, default=str)
-            print(f"Analytics saved to {out_path}")
+            logger.info(f"Analytics saved to {out_path}")

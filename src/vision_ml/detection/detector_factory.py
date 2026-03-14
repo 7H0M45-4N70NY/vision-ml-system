@@ -1,7 +1,7 @@
 from .base import BaseDetector
 from .yolo_detector import YOLODetector
 from .rfdetr_detector import RFDETRDetector
-from .model_reistry import ModelRegistry
+from .model_registry import ModelRegistry
 
 
 _REGISTRY = {

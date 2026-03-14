@@ -2,6 +2,9 @@ import os
 import json
 from ultralytics import YOLO
 from .callbacks import MLflowCallback
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Trainer:
@@ -44,9 +47,9 @@ class Trainer:
         self.mlflow_callback.set_tag('trigger', trigger)
 
         try:
-            print(f"[Trainer] Starting training ({trigger}): {self.model_name} "
-                  f"for {train_cfg.get('epochs', 10)} epochs")
-            print(f"[Trainer] Dataset: {dataset}")
+            logger.info(f"Starting training ({trigger}): {self.model_name} "
+                        f"for {train_cfg.get('epochs', 10)} epochs")
+            logger.info(f"Dataset: {dataset}")
 
             results = self.model.train(
                 data=dataset,
@@ -64,12 +67,12 @@ class Trainer:
 
             self._log_results(results, train_cfg, run_name)
             self._save_metrics(results, train_cfg, run_name)
-            print(f"[Trainer] Training completed ({trigger}).")
+            logger.info(f"Training completed ({trigger}).")
             return results
 
         except Exception as e:
             self.mlflow_callback.set_tag('status', 'failed')
-            print(f"[Trainer] Training failed: {e}")
+            logger.error(f"Training failed: {e}")
             raise
         finally:
             self.mlflow_callback.end_run()
@@ -87,7 +90,7 @@ class Trainer:
             self.mlflow_callback.log_model(best_path)
             self.mlflow_callback.register_model(best_path)
         else:
-            print(f"[Trainer] Best model not found at {best_path}, skipping artifact log.")
+            logger.warning(f"Best model not found at {best_path}, skipping artifact log.")
 
     def _save_metrics(self, results, train_cfg: dict, run_name: str):
         """Write a metrics.json alongside training output for DVC tracking."""
@@ -104,4 +107,4 @@ class Trainer:
         os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
         with open(metrics_path, 'w') as f:
             json.dump(metrics, f, indent=2)
-        print(f"[Trainer] Metrics saved to {metrics_path}")
+        logger.info(f"Metrics saved to {metrics_path}")

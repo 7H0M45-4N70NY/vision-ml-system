@@ -1,6 +1,15 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
+class ConfigUpdate(BaseModel):
+    confidence_threshold: Optional[float] = None
+    iou_threshold: Optional[float] = None
+    dual_mode: Optional[bool] = None
+
+class TriageAction(BaseModel):
+    frame_ids: List[str]
+    action: str  # accept, reject, label
+
 class InferenceRequest(BaseModel):
     source: str
     source_type: str = "video"  # video, rtsp, webcam

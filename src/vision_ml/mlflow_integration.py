@@ -2,7 +2,7 @@
 
 import os
 import json
-import logging
+import tempfile
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
@@ -12,7 +12,9 @@ import mlflow.pytorch
 from mlflow.tracking import MlflowClient
 import dagshub
 
-logger = logging.getLogger(__name__)
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class MLflowManager:
@@ -185,12 +187,13 @@ class MLflowManager:
             data: Dictionary to log
             filename: Output filename (e.g., "metrics.json")
         """
-        temp_path = f"/tmp/{filename}"
-        with open(temp_path, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        mlflow.log_artifact(temp_path)
-        os.remove(temp_path)
+        fd, temp_path = tempfile.mkstemp(suffix=f"_{filename}")
+        try:
+            with os.fdopen(fd, 'w') as f:
+                json.dump(data, f, indent=2)
+            mlflow.log_artifact(temp_path)
+        finally:
+            os.remove(temp_path)
 
     def end_run(self, status: str = "FINISHED"):
         """End current MLflow run.

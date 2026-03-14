@@ -2,6 +2,9 @@ import supervision as sv
 
 from .base import BaseTracker
 from .bytetrack import ByteTrackTracker
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _create_sv_tracker(tracker_type: str, config: dict):
@@ -28,8 +31,8 @@ def _create_sv_tracker(tracker_type: str, config: dict):
             return sv.ByteTrack(**params)
     except TypeError as e:
         # If parameter names don't match, try with minimal params
-        print(f"[TrackerFactory] Parameter error: {e}")
-        print(f"[TrackerFactory] Retrying {tracker_type} with minimal parameters...")
+        logger.warning(f"Parameter error: {e}")
+        logger.warning(f"Retrying {tracker_type} with minimal parameters...")
         try:
             if tracker_type == 'botsort':
                 return sv.BoTSORT()
@@ -38,11 +41,11 @@ def _create_sv_tracker(tracker_type: str, config: dict):
             else:
                 return sv.ByteTrack()
         except Exception as e2:
-            print(f"[TrackerFactory] Failed to create {tracker_type}: {e2}")
-            print(f"[TrackerFactory] Falling back to ByteTrack with defaults")
+            logger.error(f"Failed to create {tracker_type}: {e2}")
+            logger.warning("Falling back to ByteTrack with defaults")
             return sv.ByteTrack()
     except AttributeError:
-        print(f"[TrackerFactory] {tracker_type} not available, falling back to ByteTrack")
+        logger.warning(f"{tracker_type} not available, falling back to ByteTrack")
         return sv.ByteTrack()
 
 
