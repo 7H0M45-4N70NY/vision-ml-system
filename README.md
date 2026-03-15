@@ -104,3 +104,23 @@ By completion, you'll understand:
 - MLOps best practices
 
 This is **senior-level portfolio material**.
+
+
+
+
+
+
+
+
+
+   1 uv run uvicorn src.vision_ml.api.main:app --reload
+
+
+  If you aren't using uv, use standard python:
+   1 python -m uvicorn src.vision_ml.api.main:app --reload
+
+
+  Quick Reference:
+   * API URL: http://localhost:8000
+   * API Docs (Swagger): http://localhost:8000/docs
+   * Video Feed: http://localhost:8000/video_feed
