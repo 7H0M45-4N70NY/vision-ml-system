@@ -57,7 +57,7 @@ export function GalleryGrid({ frames, selectedIds, onToggleSelection, activeId }
                  {frame.imageUrl ? (
                      <img 
                         src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${frame.imageUrl}`} 
-                        alt={frame.id}
+                        alt={`Triage frame — ${frame.class}, confidence ${frame.confidence}`}
                         className="w-full h-full object-cover"
                      />
                  ) : (

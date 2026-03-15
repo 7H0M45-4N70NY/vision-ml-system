@@ -4,14 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, X, Tag, Code } from "lucide-react";
-import { useState } from "react";
 import { type TriageFrame } from "./GalleryGrid";
 
 interface InspectorPanelProps {
   frame: TriageFrame | null;
+  onAction: (ids: string[], action: "accept" | "reject" | "label") => void;
 }
 
-export function InspectorPanel({ frame }: InspectorPanelProps) {
+export function InspectorPanel({ frame, onAction }: InspectorPanelProps) {
 
   if (!frame) {
     return (
@@ -22,23 +22,18 @@ export function InspectorPanel({ frame }: InspectorPanelProps) {
     );
   }
 
-  const mockJsonMetadata = {
+  const metadata = {
     id: frame.id,
     timestamp: frame.timestamp,
     reason: frame.reason,
     trigger_confidence: typeof frame.confidence === 'string' ? parseFloat(frame.confidence) : frame.confidence,
     detections: [
-      { 
-        class: frame.class, 
-        conf: typeof frame.confidence === 'string' ? parseFloat(frame.confidence) : frame.confidence, 
-        bbox: [120, 45, 230, 400] 
+      {
+        class: frame.class,
+        conf: typeof frame.confidence === 'string' ? parseFloat(frame.confidence) : frame.confidence,
+        bbox: [120, 45, 230, 400]
       }
     ],
-    telemetry: {
-      fps_at_capture: 28.5,
-      camera_id: "cam_01",
-      lux_sensor: 450
-    }
   };
 
   return (
@@ -46,50 +41,64 @@ export function InspectorPanel({ frame }: InspectorPanelProps) {
       <CardHeader className="py-4 border-b border-zinc-800/50">
         <CardTitle className="text-sm font-medium">Inspector</CardTitle>
       </CardHeader>
-      
+
       <ScrollArea className="flex-1 p-0">
         <div className="p-4 space-y-6">
           <div className="aspect-video bg-zinc-900 rounded-md border border-zinc-800 flex items-center justify-center relative overflow-hidden">
-             {/* Thumbnail */}
-             {frame.imageUrl ? (
-                <img 
-                    src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${frame.imageUrl}`} 
-                    alt={frame.id}
-                    className="w-full h-full object-cover opacity-60"
-                />
-             ) : (
-                <Code className="w-8 h-8 text-zinc-800" />
-             )}
-             <div className="absolute inset-x-[15%] inset-y-[10%] border-2 border-primary border-dashed">
-                 <div className="absolute -top-6 left-0 bg-primary text-primary-foreground text-[10px] px-1 font-mono">
-                    {frame.class} {frame.confidence}
-                 </div>
-             </div>
+            {frame.imageUrl ? (
+              <img
+                src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${frame.imageUrl}`}
+                alt={`Triage frame — ${frame.class}, confidence ${frame.confidence}`}
+                className="w-full h-full object-cover opacity-60"
+              />
+            ) : (
+              <Code className="w-8 h-8 text-zinc-800" />
+            )}
+            <div className="absolute inset-x-[15%] inset-y-[10%] border-2 border-primary border-dashed">
+              <div className="absolute -top-6 left-0 bg-primary text-primary-foreground text-[10px] px-1 font-mono">
+                {frame.class} {frame.confidence}
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">
-             <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Metadata</h4>
-             <div className="bg-zinc-950 rounded-md p-3 border border-zinc-800 overflow-x-auto">
-               <pre className="text-[10px] text-zinc-300 font-mono leading-relaxed">
-                 {JSON.stringify(mockJsonMetadata, null, 2)}
-               </pre>
-             </div>
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Metadata</h4>
+            <div className="bg-zinc-950 rounded-md p-3 border border-zinc-800 overflow-x-auto">
+              <pre className="text-[10px] text-zinc-300 font-mono leading-relaxed">
+                {JSON.stringify(metadata, null, 2)}
+              </pre>
+            </div>
           </div>
         </div>
       </ScrollArea>
 
       <CardFooter className="flex-col gap-2 p-4 border-t border-zinc-800/50">
-          <div className="flex gap-2 w-full">
-            <Button variant="outline" className="flex-1 border-rose-900/50 bg-rose-950/20 text-rose-400 hover:bg-rose-950/40 hover:text-rose-300" size="sm">
-               <X className="w-4 h-4 mr-1.5" /> Discard (X)
-            </Button>
-            <Button variant="outline" className="flex-1 border-emerald-900/50 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 hover:text-emerald-300" size="sm">
-               <Check className="w-4 h-4 mr-1.5" /> Accept (K)
-            </Button>
-          </div>
-          <Button variant="outline" className="w-full bg-primary/10 border-primary/30 text-primary hover:bg-primary/20 hover:text-primary transition-colors" size="sm">
-             <Tag className="w-4 h-4 mr-1.5" /> Send to Labeling (Enter)
+        <div className="flex gap-2 w-full">
+          <Button
+            variant="outline"
+            className="flex-1 border-rose-900/50 bg-rose-950/20 text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
+            size="sm"
+            onClick={() => onAction([frame.id], "reject")}
+          >
+            <X className="w-4 h-4 mr-1.5" /> Discard (X)
           </Button>
+          <Button
+            variant="outline"
+            className="flex-1 border-emerald-900/50 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 hover:text-emerald-300"
+            size="sm"
+            onClick={() => onAction([frame.id], "accept")}
+          >
+            <Check className="w-4 h-4 mr-1.5" /> Accept (K)
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          className="w-full bg-primary/10 border-primary/30 text-primary hover:bg-primary/20 hover:text-primary transition-colors"
+          size="sm"
+          onClick={() => onAction([frame.id], "label")}
+        >
+          <Tag className="w-4 h-4 mr-1.5" /> Send to Labeling (Enter)
+        </Button>
       </CardFooter>
     </Card>
   );
