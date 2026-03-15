@@ -19,6 +19,9 @@ import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from vision_ml.utils.config import load_config
+from vision_ml.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def find_best_weights(project_dir: str) -> str:
@@ -47,7 +50,7 @@ def main():
         project = train_cfg.get('project', 'runs/train')
         weights = find_best_weights(project)
     if not weights or not os.path.isfile(weights):
-        print("[Evaluate] No trained weights found. Run training first.")
+        logger.warning("No trained weights found. Run training first.")
         # Write empty metrics so DVC pipeline doesn't fail
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
         with open(args.output, 'w') as f:
@@ -59,11 +62,11 @@ def main():
     if not data:
         data = config.get('data', {}).get('dataset_yaml') or 'data/prepared/dataset.yaml'
     if not os.path.isfile(data):
-        print(f"[Evaluate] Dataset not found at {data}. Using coco8.yaml fallback.")
+        logger.warning("Dataset not found at %s. Using coco8.yaml fallback.", data)
         data = 'coco8.yaml'
 
-    print(f"[Evaluate] Weights: {weights}")
-    print(f"[Evaluate] Dataset: {data}")
+    logger.info("Weights: %s", weights)
+    logger.info("Dataset: %s", data)
 
     from ultralytics import YOLO
     model = YOLO(weights)
@@ -97,9 +100,8 @@ def main():
     with open(args.output, 'w') as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"[Evaluate] Metrics saved to {args.output}")
-    print(f"[Evaluate] mAP50={metrics.get('mAP50', 'N/A'):.4f}  "
-          f"mAP50-95={metrics.get('mAP50-95', 'N/A'):.4f}")
+    logger.info("Metrics saved to %s", args.output)
+    logger.info("mAP50=%.4f  mAP50-95=%.4f", metrics.get('mAP50', 0), metrics.get('mAP50-95', 0))
 
 
 if __name__ == '__main__':

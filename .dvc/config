@@ -1,0 +1,6 @@
+[core]
+    remote = dagshub
+['remote "dagshub"']
+    url = https://dagshub.com/panikeradom/vision-ml-system.dvc
+['remote "local"']
+    url = ../data/dvc-local-remote

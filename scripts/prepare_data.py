@@ -23,6 +23,9 @@ import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from vision_ml.utils.config import load_config
+from vision_ml.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def collect_local_labels(auto_dir: str, low_conf_dir: str):
@@ -75,7 +78,7 @@ def download_roboflow_dataset(config: dict, version: int, dest: str):
     project = label_cfg.get('roboflow_project')
 
     if not api_key or not workspace or not project:
-        print("[PrepareData] Roboflow credentials not configured. Skipping download.")
+        logger.warning("Roboflow credentials not configured. Skipping download.")
         return None
 
     try:
@@ -83,13 +86,13 @@ def download_roboflow_dataset(config: dict, version: int, dest: str):
         rf = Roboflow(api_key=api_key)
         proj = rf.workspace(workspace).project(project)
         dataset = proj.version(version).download("yolov8", location=dest)
-        print(f"[PrepareData] Downloaded Roboflow dataset v{version} to {dest}")
+        logger.info("Downloaded Roboflow dataset v%d to %s", version, dest)
         return dataset.location
     except ImportError:
-        print("[PrepareData] roboflow package not installed. pip install roboflow")
+        logger.warning("roboflow package not installed. pip install roboflow")
         return None
     except Exception as e:
-        print(f"[PrepareData] Roboflow download error: {e}")
+        logger.error("Roboflow download error: %s", e)
         return None
 
 
@@ -155,8 +158,8 @@ def build_dataset(samples, output_dir: str, val_split: float = 0.2, num_classes:
             'names': names,
         }, f, default_flow_style=False)
 
-    print(f"[PrepareData] Dataset ready: {len(train_samples)} train, {len(val_samples)} val")
-    print(f"[PrepareData] dataset.yaml -> {dataset_yaml}")
+    logger.info("Dataset ready: %d train, %d val", len(train_samples), len(val_samples))
+    logger.info("dataset.yaml -> %s", dataset_yaml)
     return dataset_yaml
 
 
@@ -180,26 +183,25 @@ def main():
         auto_dir = 'data/auto_labeled'
         low_conf_dir = 'data/low_confidence_frames'
         local_samples = collect_local_labels(auto_dir, low_conf_dir)
-        print(f"[PrepareData] Collected {len(local_samples)} local samples")
+        logger.info("Collected %d local samples", len(local_samples))
         samples.extend(local_samples)
 
     if args.source in ('roboflow', 'both'):
         rf_dest = os.path.join(args.output, '_roboflow_download')
         rf_loc = download_roboflow_dataset(config, args.roboflow_version, rf_dest)
         if rf_loc:
-            print(f"[PrepareData] Roboflow dataset at {rf_loc}")
+            logger.info("Roboflow dataset at %s", rf_loc)
             # Roboflow downloads in YOLO format already — just point dataset.yaml there
             if args.source == 'roboflow':
                 dataset_yaml = os.path.join(rf_loc, 'data.yaml')
                 if os.path.isfile(dataset_yaml):
-                    # Copy to standard location
                     shutil.copy2(dataset_yaml, os.path.join(args.output, 'dataset.yaml'))
-                    print(f"[PrepareData] Using Roboflow dataset directly")
+                    logger.info("Using Roboflow dataset directly")
                     return
 
     if not samples:
-        print("[PrepareData] No samples found. Skipping dataset build.")
-        print("[PrepareData] Run inference first to collect auto-labels, or download from Roboflow.")
+        logger.warning("No samples found. Skipping dataset build.")
+        logger.warning("Run inference first to collect auto-labels, or download from Roboflow.")
         return
 
     build_dataset(samples, args.output, args.val_split, num_classes)
