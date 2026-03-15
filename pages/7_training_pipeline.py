@@ -1,9 +1,14 @@
 """Training Pipeline Orchestration - Monitor and manage automated training workflows."""
 
+import os
+import subprocess
+import sys
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import time
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import plotly.graph_objects as go
@@ -127,7 +132,7 @@ if view_type == "Pipeline Status":
                 "Timestamp": row['timestamp'].strftime("%Y-%m-%d %H:%M"),
                 "Trigger": row['trigger_type'],
                 "Dataset Size": row['dataset_size'],
-                "Drift Score": f"{row['drift_score']:.3f}" if row['drift_score'] else "N/A",
+                "Drift Score": f"{row['drift_score']:.3f}" if row['drift_score'] is not None and pd.notna(row['drift_score']) else "N/A",
                 "Model Version": row['model_version'] if row['model_version'] else "—",
             })
         
@@ -319,17 +324,16 @@ elif view_type == "Drift Detection":
             
             with col1:
                 if st.button("🚀 Trigger Retraining Now", key="trigger_retrain"):
-                    import subprocess, sys
-                    event_id = db.save_training_event({
-                        'trigger_type': 'drift',
-                        'dataset_size': len(df_runs),
-                        'drift_score': current_drift,
-                        'model_version': 'auto_retrain',
-                    })
                     try:
+                        event_id = db.save_training_event({
+                            'trigger_type': 'drift',
+                            'dataset_size': len(df_runs),
+                            'drift_score': current_drift,
+                            'model_version': 'auto_retrain',
+                        })
                         subprocess.Popen(
                             [sys.executable, "scripts/train.py", "--trigger", "drift"],
-                            cwd=".",
+                            cwd=_PROJECT_ROOT,
                         )
                         st.success(f"✅ Retraining triggered! Event ID: {event_id}")
                         st.info("Training running in background — check MLflow Experiments for progress")

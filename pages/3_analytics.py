@@ -16,7 +16,11 @@ st.title("📊 Analytics Dashboard")
 st.markdown("Comprehensive visitor analytics and system metrics")
 
 # Initialize database
-db = AnalyticsDB()
+try:
+    db = AnalyticsDB()
+except Exception as e:
+    st.error(f"Database unavailable: {e}")
+    st.stop()
 
 # Sidebar filters
 with st.sidebar:
@@ -175,13 +179,9 @@ elif view_type == "Runs":
             if visitors:
                 st.subheader("Visitor Details")
                 df_visitors = pd.DataFrame(visitors)
-                st.dataframe(
-                    df_visitors[[
-                        'tracker_id', 'duration_seconds', 'first_frame', 'last_frame'
-                    ]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                v_cols = [c for c in ['tracker_id', 'duration_seconds', 'first_frame', 'last_frame']
+                          if c in df_visitors.columns]
+                st.dataframe(df_visitors[v_cols], use_container_width=True, hide_index=True)
     else:
         st.info("No inference runs yet")
 
@@ -248,13 +248,9 @@ elif view_type == "Visitors":
             
             # Detailed table
             st.subheader("All Visitors")
-            st.dataframe(
-                df_visitors[[
-                    'visitor_id', 'run_id', 'duration_seconds', 'first_frame', 'last_frame'
-                ]],
-                use_container_width=True,
-                hide_index=True,
-            )
+            all_v_cols = [c for c in ['visitor_id', 'run_id', 'duration_seconds', 'first_frame', 'last_frame']
+                          if c in df_visitors.columns]
+            st.dataframe(df_visitors[all_v_cols], use_container_width=True, hide_index=True)
         else:
             st.info("No visitor data yet")
     else:

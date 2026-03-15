@@ -30,7 +30,7 @@ with col_main:
     
     if st.button("📂 Load Frames", key="load_frames"):
         try:
-            config = load_config('config/training/base.yaml')
+            config = load_config('config/inference/base.yaml')
             labeler = AutoLabeler(config)
             count = labeler.load_dual_detector_frames(frame_dir)
             
@@ -41,7 +41,7 @@ with col_main:
             st.error(f"❌ Error: {str(e)}")
     
     # Step 2: Preview labels
-    if 'labeler' in st.session_state and st.session_state.loaded_count > 0:
+    if 'labeler' in st.session_state and st.session_state.get('loaded_count', 0) > 0:
         st.subheader("Step 2: Preview Labels")
         
         if st.checkbox("Show label preview"):
@@ -55,7 +55,7 @@ with col_main:
     # Step 3: Export/Upload
     st.subheader("Step 3: Export / Upload")
     
-    if 'labeler' in st.session_state and st.session_state.loaded_count > 0:
+    if 'labeler' in st.session_state and st.session_state.get('loaded_count', 0) > 0:
         col_export, col_upload = st.columns(2)
         
         with col_export:

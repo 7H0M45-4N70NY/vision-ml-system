@@ -1,9 +1,14 @@
 """Training page - Model retraining with drift detection and manual triggers."""
 
+import os
+import subprocess
+import sys
 import streamlit as st
 import pandas as pd
 
 from src.vision_ml.analytics.analytics_db import AnalyticsDB
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 st.title("🚀 Training")
 st.markdown("Automated model retraining with drift detection and manual triggers")
@@ -75,7 +80,6 @@ with col_main:
             model_version_input = st.text_input("Model Version", value=model_version)
         
         if st.button("🚀 Start Training", key="start_training"):
-            import subprocess, sys
             try:
                 event_id = db.save_training_event({
                     'trigger_type': 'manual',
@@ -85,7 +89,7 @@ with col_main:
                 })
                 subprocess.Popen(
                     [sys.executable, "scripts/train.py", "--trigger", "manual"],
-                    cwd=".",
+                    cwd=_PROJECT_ROOT,
                 )
                 st.success(f"✅ Training launched! Event ID: {event_id}")
                 st.info("Training running in background — check MLflow Experiments for progress")
@@ -138,7 +142,6 @@ with col_main:
                 )
                 
                 if st.button("🚀 Start Training (Drift)", key="start_training_drift"):
-                    import subprocess, sys
                     try:
                         event_id = db.save_training_event({
                             'trigger_type': 'drift',
@@ -148,7 +151,7 @@ with col_main:
                         })
                         subprocess.Popen(
                             [sys.executable, "scripts/train.py", "--trigger", "drift"],
-                            cwd=".",
+                            cwd=_PROJECT_ROOT,
                         )
                         st.success(f"✅ Training triggered! Event ID: {event_id}")
                         st.info("Training running in background — check MLflow Experiments for progress")

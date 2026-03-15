@@ -76,8 +76,14 @@ st.markdown("**Modern infrastructure for computer vision inference, auto-labelin
 st.divider()
 
 # Quick stats from SQLite
-db = AnalyticsDB()
-summary = db.get_analytics_summary()
+try:
+    db = AnalyticsDB()
+    summary = db.get_analytics_summary()
+except Exception:
+    summary = {
+        'total_runs': 0, 'total_visitors': 0, 'avg_dwell_time_seconds': 0.0,
+        'total_frames': 0, 'total_labeling_events': 0, 'total_training_events': 0,
+    }
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric("Total Runs", summary['total_runs'])
