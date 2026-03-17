@@ -332,7 +332,14 @@ elif view_type == "Drift Detection":
                             'model_version': 'auto_retrain',
                         })
                         subprocess.Popen(
-                            [sys.executable, "scripts/train.py", "--trigger", "drift"],
+                            [
+                                sys.executable,
+                                "scripts/train.py",
+                                "--trigger",
+                                "drift",
+                                "--event-id",
+                                event_id,
+                            ],
                             cwd=_PROJECT_ROOT,
                         )
                         st.success(f"✅ Retraining triggered! Event ID: {event_id}")

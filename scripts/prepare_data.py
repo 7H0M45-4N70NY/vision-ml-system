@@ -19,13 +19,59 @@ import glob
 import shutil
 import random
 import argparse
+from typing import Dict, List, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from vision_ml.utils.config import load_config
 from vision_ml.logging import get_logger
+from vision_ml.events.publishers import get_pipeline_event_publisher
 
 logger = get_logger(__name__)
+
+
+def _sample_key(image_path: str) -> str:
+    return os.path.basename(image_path).lower()
+
+
+def _dedupe_samples(samples: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
+    """Deduplicate by canonical image key while preserving first-seen order."""
+    deduped: List[Tuple[str, Dict]] = []
+    seen = set()
+    for img_path, label in samples:
+        key = _sample_key(img_path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((img_path, label))
+    return deduped
+
+
+def _validate_samples(samples: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
+    """Drop invalid sample rows before dataset build."""
+    valid: List[Tuple[str, Dict]] = []
+    invalid_count = 0
+    for img_path, label in samples:
+        if not img_path or not os.path.isfile(img_path):
+            invalid_count += 1
+            continue
+
+        boxes = label.get('boxes', [])
+        class_ids = label.get('class_ids', [])
+        if not isinstance(boxes, list) or not isinstance(class_ids, list):
+            invalid_count += 1
+            continue
+
+        if boxes and len(class_ids) < len(boxes):
+            # Fill missing class IDs with class 0 to preserve annotations.
+            class_ids = class_ids + [0] * (len(boxes) - len(class_ids))
+            label['class_ids'] = class_ids
+
+        valid.append((img_path, label))
+
+    if invalid_count:
+        logger.warning("Dropped %d invalid samples during validation", invalid_count)
+    return valid
 
 
 def collect_local_labels(auto_dir: str, low_conf_dir: str):
@@ -94,6 +140,69 @@ def download_roboflow_dataset(config: dict, version: int, dest: str):
     except Exception as e:
         logger.error("Roboflow download error: %s", e)
         return None
+
+
+def collect_roboflow_samples(dataset_root: str) -> List[Tuple[str, Dict]]:
+    """Convert downloaded Roboflow YOLO dataset to internal sample records."""
+    samples: List[Tuple[str, Dict]] = []
+
+    import cv2
+
+    for split in ('train', 'valid', 'val', 'test'):
+        image_dir = os.path.join(dataset_root, split, 'images')
+        label_dir = os.path.join(dataset_root, split, 'labels')
+        if not os.path.isdir(image_dir) or not os.path.isdir(label_dir):
+            continue
+
+        for image_path in sorted(glob.glob(os.path.join(image_dir, '*'))):
+            base = os.path.splitext(os.path.basename(image_path))[0]
+            label_path = os.path.join(label_dir, f"{base}.txt")
+            if not os.path.isfile(label_path):
+                continue
+
+            img = cv2.imread(image_path)
+            if img is None:
+                continue
+
+            h, w = img.shape[:2]
+            boxes = []
+            class_ids = []
+
+            with open(label_path, 'r', encoding='utf-8') as fh:
+                for line in fh:
+                    parts = line.strip().split()
+                    if len(parts) != 5:
+                        continue
+                    cls_id, cx, cy, bw, bh = parts
+                    try:
+                        class_id = int(float(cls_id))
+                        cx = float(cx)
+                        cy = float(cy)
+                        bw = float(bw)
+                        bh = float(bh)
+                    except ValueError:
+                        continue
+
+                    x1 = max(0.0, (cx - bw / 2.0) * w)
+                    y1 = max(0.0, (cy - bh / 2.0) * h)
+                    x2 = min(float(w), (cx + bw / 2.0) * w)
+                    y2 = min(float(h), (cy + bh / 2.0) * h)
+                    boxes.append([x1, y1, x2, y2])
+                    class_ids.append(class_id)
+
+            samples.append((
+                image_path,
+                {
+                    'image_id': base,
+                    'image_path': image_path,
+                    'boxes': boxes,
+                    'confidences': [],
+                    'class_ids': class_ids,
+                    'source': 'roboflow',
+                }
+            ))
+
+    return samples
 
 
 def write_yolo_annotation(label: dict, output_path: str, img_w: int, img_h: int):
@@ -175,7 +284,13 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
+    publisher = get_pipeline_event_publisher(config)
     num_classes = config.get('model', {}).get('num_classes', 1)
+
+    publisher.publish('ingestion.started', {
+        'source': args.source,
+        'output': args.output,
+    })
 
     samples = []
 
@@ -184,6 +299,8 @@ def main():
         low_conf_dir = 'data/low_confidence_frames'
         local_samples = collect_local_labels(auto_dir, low_conf_dir)
         logger.info("Collected %d local samples", len(local_samples))
+        for _, label in local_samples:
+            label['source'] = 'local'
         samples.extend(local_samples)
 
     if args.source in ('roboflow', 'both'):
@@ -191,20 +308,34 @@ def main():
         rf_loc = download_roboflow_dataset(config, args.roboflow_version, rf_dest)
         if rf_loc:
             logger.info("Roboflow dataset at %s", rf_loc)
-            # Roboflow downloads in YOLO format already — just point dataset.yaml there
-            if args.source == 'roboflow':
-                dataset_yaml = os.path.join(rf_loc, 'data.yaml')
-                if os.path.isfile(dataset_yaml):
-                    shutil.copy2(dataset_yaml, os.path.join(args.output, 'dataset.yaml'))
-                    logger.info("Using Roboflow dataset directly")
-                    return
+            rf_samples = collect_roboflow_samples(rf_loc)
+            logger.info("Collected %d Roboflow samples", len(rf_samples))
+            samples.extend(rf_samples)
+        elif args.source == 'roboflow':
+            publisher.publish('ingestion.failed', {
+                'source': args.source,
+                'reason': 'roboflow_download_unavailable',
+            })
+            raise SystemExit(1)
+
+    samples = _dedupe_samples(samples)
+    samples = _validate_samples(samples)
 
     if not samples:
         logger.warning("No samples found. Skipping dataset build.")
         logger.warning("Run inference first to collect auto-labels, or download from Roboflow.")
+        publisher.publish('ingestion.failed', {
+            'source': args.source,
+            'reason': 'no_samples_found',
+        })
         return
 
-    build_dataset(samples, args.output, args.val_split, num_classes)
+    dataset_yaml = build_dataset(samples, args.output, args.val_split, num_classes)
+    publisher.publish('ingestion.completed', {
+        'source': args.source,
+        'sample_count': len(samples),
+        'dataset_yaml': dataset_yaml,
+    })
 
 
 if __name__ == '__main__':

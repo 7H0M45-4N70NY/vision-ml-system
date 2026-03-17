@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from vision_ml.training.trainer import Trainer
 from vision_ml.analytics.analytics_db import AnalyticsDB
 from vision_ml.utils.config import load_config
+from vision_ml.events.publishers import get_pipeline_event_publisher
 
 
 def main():
@@ -35,9 +36,12 @@ def main():
     parser.add_argument('--dvc-targets', type=str, default='runs/train',
                         help='Comma-separated targets for `dvc add` when --dvc-add is enabled')
     parser.add_argument('--skip-event-log', action='store_true', help='Skip logging training event in analytics.db')
+    parser.add_argument('--event-id', type=str, default=None,
+                        help='Reuse an existing training event ID instead of creating a new one')
     args = parser.parse_args()
 
     config = load_config(args.config)
+    publisher = get_pipeline_event_publisher(config)
 
     # CLI overrides
     if args.dataset_yaml:
@@ -66,13 +70,25 @@ def main():
         print(f"[Script] Auto trigger resolved via schedule.mode='{schedule_mode}' -> '{effective_trigger}'")
 
     event_id = None
-    if not args.skip_event_log:
-        db = AnalyticsDB()
+    db = AnalyticsDB()
+    if args.event_id:
+        event_id = args.event_id
+        db.update_training_event_status(
+            event_id,
+            'pending',
+            {
+                'trigger_type': effective_trigger,
+                'model_version': config.get('mlflow', {}).get('model_name', 'v1'),
+            },
+        )
+        print(f"[Script] Reusing training event: {event_id}")
+    elif not args.skip_event_log:
         event_id = db.save_training_event({
             'trigger_type': effective_trigger,
             'dataset_size': 0,
             'drift_score': 0.0,
             'model_version': config.get('mlflow', {}).get('model_name', 'v1'),
+            'status': 'pending',
         })
         print(f"[Script] Logged training event: {event_id}")
 
@@ -86,12 +102,39 @@ def main():
     trainer = Trainer(config)
 
     started_at = datetime.now()
-    if effective_trigger == 'drift':
-        print("[Script] Running drift-triggered retraining...")
-        trainer.train_on_drift(run_name=args.run_name)
+    if event_id:
+        db.mark_training_event_running(event_id)
+
+    publisher.publish('training.started', {
+        'event_id': event_id,
+        'trigger': effective_trigger,
+        'run_name': args.run_name,
+    })
+
+    try:
+        if effective_trigger == 'drift':
+            print("[Script] Running drift-triggered retraining...")
+            trainer.train_on_drift(run_name=args.run_name)
+        else:
+            print("[Script] Running manual training...")
+            trainer.train(run_name=args.run_name)
+    except Exception:
+        if event_id:
+            db.mark_training_event_failed(event_id)
+        publisher.publish('training.failed', {
+            'event_id': event_id,
+            'trigger': effective_trigger,
+            'run_name': args.run_name,
+        })
+        raise
     else:
-        print("[Script] Running manual training...")
-        trainer.train(run_name=args.run_name)
+        if event_id:
+            db.mark_training_event_completed(event_id)
+        publisher.publish('training.completed', {
+            'event_id': event_id,
+            'trigger': effective_trigger,
+            'run_name': args.run_name,
+        })
 
     if args.enable_dvc and args.dvc_add:
         targets = [target.strip() for target in args.dvc_targets.split(',') if target.strip()]
