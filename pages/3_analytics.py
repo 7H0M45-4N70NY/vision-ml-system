@@ -45,7 +45,27 @@ inference_runs = db.get_inference_runs(limit=50)
 # Display summary metrics
 st.header("📈 Summary Metrics")
 
-col1, col2, col3, col4, col5 = st.columns(5)
+# Add custom CSS for better spacing
+st.markdown("""
+<style>
+.metric-container {
+    padding: 1rem;
+    margin: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    border: 1px solid #e9ecef;
+}
+.chart-container {
+    padding: 1.5rem;
+    margin: 1rem 0;
+    background-color: white;
+    border-radius: 0.5rem;
+    border: 1px solid #e9ecef;
+}
+</style>
+""", unsafe_allow_html=True)
+
+col1, col2, col3, col4, col5 = st.columns(5, gap="medium")
 
 with col1:
     st.metric("Total Runs", summary['total_runs'])
@@ -64,9 +84,10 @@ if view_type == "Summary":
     st.divider()
     st.header("🎯 System Overview")
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
     
     with col1:
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.subheader("Inference Runs Over Time")
         
         if inference_runs:
@@ -81,14 +102,20 @@ if view_type == "Summary":
                     title="Daily Inference Runs",
                     labels={'x': 'Date', 'y': 'Number of Runs'},
                 )
-                fig.update_layout(height=400)
+                fig.update_layout(
+                    height=400,
+                    xaxis_tickformat='%Y-%m-%d',
+                    yaxis_tickformat=',.0f'
+                )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.bar_chart(df_runs_daily)
         else:
             st.info("No inference runs yet")
+        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.subheader("Model Health")
         
         if inference_runs:
@@ -103,7 +130,7 @@ if view_type == "Summary":
                 avg_conf = 0
             
             if HAS_PLOTLY:
-                fig = go.Figure(data=[go.Gauge(
+                fig = go.Figure(data=[go.Indicator(
                     mode="gauge+number+delta",
                     value=avg_conf * 100,
                     title={'text': "Avg Model Confidence (%)"},
@@ -133,6 +160,7 @@ if view_type == "Summary":
                     st.success("Model is healthy")
         else:
             st.info("No model data yet")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 elif view_type == "Runs":

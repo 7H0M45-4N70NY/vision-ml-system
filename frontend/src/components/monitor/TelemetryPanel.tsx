@@ -9,7 +9,10 @@ import React, { useEffect, useState } from "react";
 export function TelemetryPanel() {
   const { fps, latency, objectCount, isConnected, confidences } = useStore();
   const [logs, setLogs] = useState<string[]>([]);
+  const [mounted, setMounted] = useState(false);
   const previousObjectCount = React.useRef(0);
+
+  useEffect(() => setMounted(true), []);
 
   // Map confidences to chart data format
   const chartData = confidences.map((c, i) => ({
@@ -68,9 +71,9 @@ export function TelemetryPanel() {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium font-mono">Confidence Drift (60s)</CardTitle>
         </CardHeader>
-        <CardContent className="h-40 p-0 pl-[-10px]">
-          <div className="h-full w-full min-h-0 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
+        <CardContent className="h-40 p-0">
+          {mounted && (
+            <ResponsiveContainer width="100%" height={160}>
               <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                 <YAxis domain={[0, 1]} hide />
                 <Tooltip
@@ -81,7 +84,7 @@ export function TelemetryPanel() {
                 <Line type="monotone" dataKey="confidence" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          )}
         </CardContent>
       </Card>
 

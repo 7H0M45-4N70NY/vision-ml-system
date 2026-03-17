@@ -114,108 +114,104 @@ async def start_stream(request: InferenceRequest):
     """
     return {"message": "Stream processing started (Not implemented in MVP API wrapper yet)"}
 
-import threading
+from vidgear.gears import CamGear
 
-class ThreadedVideoCapture:
-    """Threaded capture: isolates the camera driver from the inference loop."""
+class VidGearCapture:
+    """Video capture via VidGear CamGear.
 
-    # On Windows, DirectShow (DSHOW) is far more stable than MSMF for webcams.
-    # Fall back to CAP_ANY for RTSP / file sources where DSHOW is irrelevant.
-    _WEBCAM_BACKEND = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-    _MAX_RECONNECT_DELAY = 30.0  # cap exponential backoff at 30 s
+    Replaces the hand-rolled ThreadedVideoCapture.  VidGear manages its own
+    capture thread and handles platform quirks (Windows DSHOW/MSMF) internally.
+    Exposes the same read() / release() interface so feed_generator() is unchanged.
+    """
+
+    _MAX_RECONNECT_DELAY = 30.0
+
+    # How many consecutive None reads before we consider the stream dead.
+    # CamGear's background thread may not have grabbed a frame yet on the first
+    # few read() calls — we must tolerate that without tearing down the stream.
+    _NULL_FRAME_THRESHOLD = 20
 
     def __init__(self, source):
         self.source = source
-        self.cap = None
-        self.frame = None
-        self.stopped = False
-        self.lock = threading.Lock()
-        self.error_count = 0
-        self.reconnect_delay = 1.0
+        self._stream: Optional[CamGear] = None
         self._reconnect_attempts = 0
+        self.reconnect_delay = 1.0
+        self._last_attempt = 0.0
+        self._null_count = 0
+        self._open()
 
-        self.start_capture()
-        self.thread = threading.Thread(target=self.update, daemon=True)
-        self.thread.start()
-
-    def _try_open(self, source_val, backend) -> bool:
-        """Attempt to open a capture device; returns True on success."""
-        try:
-            cap = cv2.VideoCapture(source_val, backend)
-            if cap.isOpened():
-                self.cap = cap
-                return True
-            cap.release()
-        except Exception:
-            pass
-        return False
-
-    def start_capture(self):
+    def _open(self):
         source_val = int(self.source) if str(self.source).isdigit() else self.source
-        is_index   = isinstance(source_val, int)
+        is_webcam = isinstance(source_val, int)
 
-        opened = False
-        if is_index:
-            # On Windows try DSHOW first (lower latency), fall back to MSMF
-            for backend in ([cv2.CAP_DSHOW, cv2.CAP_MSMF] if os.name == 'nt' else [cv2.CAP_ANY]):
-                if self._try_open(source_val, backend):
-                    logger.info("Camera opened: source=%s backend=%s", self.source, backend)
-                    opened = True
-                    break
-        else:
-            opened = self._try_open(source_val, cv2.CAP_ANY)
+        # CAP_PROP_BACKEND (id=42) is read-only in OpenCV — it can only be passed
+        # to VideoCapture() at construction time, never via cap.set().
+        # VidGear CamGear accepts a `backend` kwarg that maps to the constructor arg.
+        options = {
+            "CAP_PROP_FRAME_WIDTH": 640,
+            "CAP_PROP_FRAME_HEIGHT": 480,
+            "CAP_PROP_BUFFERSIZE": 1,
+        }
+        backend = (cv2.CAP_DSHOW if (is_webcam and os.name == "nt") else cv2.CAP_ANY)
 
-        if opened:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self._last_attempt = time.time()
+        try:
+            self._stream = CamGear(source=source_val, backend=backend, logging=False, **options).start()
             self._reconnect_attempts = 0
+            self._null_count = 0
             self.reconnect_delay = 1.0
-        else:
+            logger.info("CamGear opened: source=%s", self.source)
+        except Exception as exc:
+            self._stream = None
             self._reconnect_attempts += 1
-            self.reconnect_delay = min(
-                2 ** self._reconnect_attempts, self._MAX_RECONNECT_DELAY
-            )
+            self.reconnect_delay = min(2 ** self._reconnect_attempts, self._MAX_RECONNECT_DELAY)
             if self._reconnect_attempts <= 3 or self._reconnect_attempts % 5 == 0:
                 logger.warning(
-                    "Camera unavailable (source=%s, attempt=%d). Retrying in %.0fs…",
-                    self.source, self._reconnect_attempts, self.reconnect_delay,
+                    "CamGear unavailable (source=%s, attempt=%d): %s. Retry in %.0fs…",
+                    self.source, self._reconnect_attempts, exc, self.reconnect_delay,
                 )
 
-    def update(self):
-        while not self.stopped:
-            if self.cap is None or not self.cap.isOpened():
-                time.sleep(self.reconnect_delay)
-                self.start_capture()
-                continue
-
-            success, frame = self.cap.read()
-            if success:
-                with self.lock:
-                    self.frame = frame
-                self.error_count = 0
-            else:
-                self.error_count += 1
-                if self.error_count > 10:
-                    # Only log on first invalidation, not every cycle
-                    if self.error_count == 11:
-                        logger.warning("Device read failing (source=%s). Resetting driver…", self.source)
-                    self.cap.release()
-                    self.error_count = 0
-                    time.sleep(self.reconnect_delay)
-
-            time.sleep(0.01)
-
     def read(self):
-        with self.lock:
-            return self.frame is not None, self.frame
+        # Attempt reconnect after backoff window
+        if self._stream is None:
+            if time.time() - self._last_attempt >= self.reconnect_delay:
+                self._open()
+            return False, None
+
+        frame = self._stream.read()
+        if frame is None:
+            # CamGear may return None for the first N calls while its background
+            # thread is still warming up. Only tear down after _NULL_FRAME_THRESHOLD
+            # consecutive nulls (genuine device failure / end-of-stream).
+            self._null_count += 1
+            if self._null_count < self._NULL_FRAME_THRESHOLD:
+                return False, None
+
+            self._null_count = 0
+            try:
+                self._stream.stop()
+            except Exception:
+                pass
+            self._stream = None
+            self._reconnect_attempts += 1
+            self.reconnect_delay = min(2 ** self._reconnect_attempts, self._MAX_RECONNECT_DELAY)
+            if self._reconnect_attempts <= 3 or self._reconnect_attempts % 5 == 0:
+                logger.warning(
+                    "CamGear read failed (source=%s, attempt=%d). Reconnecting in %.0fs…",
+                    self.source, self._reconnect_attempts, self.reconnect_delay,
+                )
+            return False, None
+
+        self._null_count = 0  # reset on successful read
+        return True, frame
 
     def release(self):
-        self.stopped = True
-        if self.thread.is_alive():
-            self.thread.join(timeout=1.0)
-        if self.cap:
-            self.cap.release()
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+            except Exception:
+                pass
+            self._stream = None
 
 def feed_generator():
     global pipeline, current_telemetry, current_stream_source, pipeline_state
@@ -242,7 +238,7 @@ def feed_generator():
                     threaded_cap.release()
                 
                 logger.info(f"Connecting to source: {current_stream_source}...")
-                threaded_cap = ThreadedVideoCapture(current_stream_source)
+                threaded_cap = VidGearCapture(current_stream_source)
                 last_source = current_stream_source
 
             if not pipeline_state.get("stream_active", True):

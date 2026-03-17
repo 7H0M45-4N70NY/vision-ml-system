@@ -29,6 +29,7 @@ python-dotenv>=1.0.0
 # Image & Video Processing
 opencv-python>=4.9.0
 Pillow>=10.0.0
+vidgear>=0.3.3
 
 # Testing
 pytest>=8.0.0

@@ -6,9 +6,10 @@ import { useStore } from "@/store/useStore";
 export function VideoCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { setTelemetry, streamSource } = useStore();
-  const [imgKey, setImgKey] = useState(Date.now());
+  // Initialize to 0 — server and client agree on the same value during hydration.
+  // The first useEffect sets a real timestamp immediately after mount.
+  const [imgKey, setImgKey] = useState(0);
 
-  // Force img reload when stream source changes
   useEffect(() => {
     setImgKey(Date.now());
   }, [streamSource]);
