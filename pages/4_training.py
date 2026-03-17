@@ -88,7 +88,14 @@ with col_main:
                     'model_version': model_version_input,
                 })
                 subprocess.Popen(
-                    [sys.executable, "scripts/train.py", "--trigger", "manual"],
+                    [
+                        sys.executable,
+                        "scripts/train.py",
+                        "--trigger",
+                        "manual",
+                        "--event-id",
+                        event_id,
+                    ],
                     cwd=_PROJECT_ROOT,
                 )
                 st.success(f"✅ Training launched! Event ID: {event_id}")
@@ -150,7 +157,14 @@ with col_main:
                             'model_version': model_version,
                         })
                         subprocess.Popen(
-                            [sys.executable, "scripts/train.py", "--trigger", "drift"],
+                            [
+                                sys.executable,
+                                "scripts/train.py",
+                                "--trigger",
+                                "drift",
+                                "--event-id",
+                                event_id,
+                            ],
                             cwd=_PROJECT_ROOT,
                         )
                         st.success(f"✅ Training triggered! Event ID: {event_id}")

@@ -18,6 +18,12 @@ from .in_memory import (
     InMemoryEventPublisher,
     InMemoryJobQueue
 )
+from .publishers import (
+    PipelineEventPublisher,
+    NoopPipelineEventPublisher,
+    KafkaPipelineEventPublisher,
+    get_pipeline_event_publisher,
+)
 
 __all__ = [
     'Event',
@@ -28,5 +34,9 @@ __all__ = [
     'EventSubscriber',
     'JobQueue',
     'InMemoryEventPublisher',
-    'InMemoryJobQueue'
+    'InMemoryJobQueue',
+    'PipelineEventPublisher',
+    'NoopPipelineEventPublisher',
+    'KafkaPipelineEventPublisher',
+    'get_pipeline_event_publisher',
 ]

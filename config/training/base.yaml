@@ -45,6 +45,12 @@ mlflow:
   register_model: true
   model_name: visitor-analytics-yolo11n
 
+# Pipeline event transport (optional): noop | kafka
+events:
+  backend: noop
+  kafka_bootstrap_servers: localhost:9092
+  kafka_topic: vision-ml-events
+
 # Detector factory configuration (for dual-model setup)
 detection:
   detector_type: yolo11n

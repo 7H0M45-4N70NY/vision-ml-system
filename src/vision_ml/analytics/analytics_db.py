@@ -7,7 +7,7 @@ import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class AnalyticsDB:
@@ -193,7 +193,8 @@ class AnalyticsDB:
         Returns:
             event_id: Unique identifier for this event
         """
-        event_id = f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        event_id = event_data.get('event_id') or f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        status = event_data.get('status', 'pending')
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -206,12 +207,57 @@ class AnalyticsDB:
                 event_data.get('trigger_type', 'manual'),
                 event_data.get('dataset_size', 0),
                 event_data.get('drift_score', 0),
-                'pending',
+                status,
                 event_data.get('model_version', 'v1')
             ))
             conn.commit()
         
         return event_id
+
+    def update_training_event_status(self, event_id: str, status: str, extra_updates: Optional[Dict[str, Any]] = None) -> bool:
+        """Update status and optional fields for an existing training event.
+
+        Args:
+            event_id: Existing training event id
+            status: New status (pending/running/completed/failed)
+            extra_updates: Optional mapping of allowed column -> value
+
+        Returns:
+            True if a row was updated, False otherwise
+        """
+        allowed_fields = {'trigger_type', 'dataset_size', 'drift_score', 'model_version'}
+        updates = {'status': status}
+        if extra_updates:
+            for key, value in extra_updates.items():
+                if key in allowed_fields:
+                    updates[key] = value
+
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values()) + [event_id]
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE training_events SET {set_clause} WHERE event_id = ?",
+                values,
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def mark_training_event_running(self, event_id: str, dataset_size: Optional[int] = None) -> bool:
+        """Mark a training event as running."""
+        payload: Dict[str, Any] = {}
+        if dataset_size is not None:
+            payload['dataset_size'] = dataset_size
+        return self.update_training_event_status(event_id, 'running', payload)
+
+    def mark_training_event_completed(self, event_id: str) -> bool:
+        """Mark a training event as completed."""
+        return self.update_training_event_status(event_id, 'completed')
+
+    def mark_training_event_failed(self, event_id: str) -> bool:
+        """Mark a training event as failed."""
+        return self.update_training_event_status(event_id, 'failed')
     
     def get_inference_runs(self, limit: int = 50) -> List[Dict]:
         """Get recent inference runs.
