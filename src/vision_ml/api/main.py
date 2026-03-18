@@ -16,6 +16,7 @@ import time
 import cv2
 import numpy as np
 import os
+import supervision as sv
 from ..logging import get_logger
 
 from ..analytics.analytics_db import AnalyticsDB
@@ -114,7 +115,43 @@ async def start_stream(request: InferenceRequest):
     """
     return {"message": "Stream processing started (Not implemented in MVP API wrapper yet)"}
 
+import threading as _threading
 from vidgear.gears import CamGear
+
+# ── Shared capture singleton (B-08 fix) ───────────────────────────────────────
+# All /video_feed connections share one VidGearCapture.  DSHOW on Windows only
+# grants exclusive access to one handle — multiple handles = second connection
+# fails.  Ref-counting ensures the capture stays alive while any client is
+# connected and is cleanly released when the last client disconnects.
+_capture: Optional["VidGearCapture"] = None
+_capture_source: str = ""
+_capture_lock = _threading.Lock()
+_capture_refs: int = 0
+
+
+def _acquire_capture(source: str) -> "VidGearCapture":
+    """Return the shared VidGearCapture, (re)opening it if the source changed."""
+    global _capture, _capture_source, _capture_refs
+    with _capture_lock:
+        if _capture is None or _capture_source != source:
+            if _capture is not None:
+                _capture.release()
+            logger.info("Opening shared capture for source: %s", source)
+            _capture = VidGearCapture(source)
+            _capture_source = source
+        _capture_refs += 1
+        return _capture
+
+
+def _release_capture() -> None:
+    """Decrement ref count; destroy the shared capture when no readers remain."""
+    global _capture, _capture_refs
+    with _capture_lock:
+        _capture_refs = max(0, _capture_refs - 1)
+        if _capture_refs == 0 and _capture is not None:
+            _capture.release()
+            _capture = None
+
 
 class VidGearCapture:
     """Video capture via VidGear CamGear.
@@ -213,110 +250,120 @@ class VidGearCapture:
                 pass
             self._stream = None
 
-def feed_generator():
+async def feed_generator():
+    """Async MJPEG generator (B-07 fix).
+
+    - All await asyncio.sleep() calls yield control back to the event loop
+      so other requests/WebSocket messages are not starved.
+    - CPU-bound inference runs in the default thread-pool executor so it
+      never blocks the event loop thread.
+    - Reads from the module-level singleton VidGearCapture (B-08 fix) so
+      multiple simultaneous /video_feed connections share one camera handle.
+    """
     global pipeline, current_telemetry, current_stream_source, pipeline_state
-    
-    # Wait for pipeline to be initialized
+
+    # Wait for pipeline to be ready without blocking the event loop
     retry_count = 0
     while pipeline is None and retry_count < 30:
-        time.sleep(1)
+        await asyncio.sleep(1)
         retry_count += 1
-        
+
     if pipeline is None:
         logger.error("Pipeline failed to initialize")
         return
-        
-    last_source = None
-    threaded_cap = None
+
+    loop = asyncio.get_event_loop()
+    last_source: str = ""
+    cap: Optional[VidGearCapture] = None
     frame_idx = 0
-    
+
     try:
         while True:
-            # Handle Source Change
+            # Acquire / reuse the shared capture; reopen only on source change
             if last_source != current_stream_source:
-                if threaded_cap is not None:
-                    threaded_cap.release()
-                
-                logger.info(f"Connecting to source: {current_stream_source}...")
-                threaded_cap = VidGearCapture(current_stream_source)
+                if cap is not None:
+                    _release_capture()
+                cap = _acquire_capture(current_stream_source)
                 last_source = current_stream_source
 
             if not pipeline_state.get("stream_active", True):
-                if threaded_cap:
-                    threaded_cap.release()
-                    threaded_cap = None
-                
-                # Telemetry reset
                 current_telemetry["fps"] = 0
                 current_telemetry["latency"] = 0
-                
-                black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(black_frame, "OFFLINE", (260, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 80, 80), 2)
-                ret, buffer = cv2.imencode('.jpg', black_frame)
+                black = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(black, "OFFLINE", (260, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 80, 80), 2)
+                ret, buf = cv2.imencode(".jpg", black)
                 if ret:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(1)
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                           + buf.tobytes() + b"\r\n")
+                await asyncio.sleep(1)
                 continue
 
             start_time = time.time()
-            success, frame = threaded_cap.read() if threaded_cap else (False, None)
-            
+            success, frame = cap.read() if cap else (False, None)
+
             if not success or frame is None:
-               # Show 'reconnecting' UI if frame is missing
-               fail_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-               cv2.putText(fail_frame, "RECONNECTING CAMERA...", (160, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-               ret, buffer = cv2.imencode('.jpg', fail_frame)
-               if ret:
-                   yield (b'--frame\r\n'
-                          b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-               time.sleep(0.5)
-               continue
-                
-            # Copy frame to avoid thread race conditions during processing
+                fail = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(fail, "RECONNECTING CAMERA...", (160, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                ret, buf = cv2.imencode(".jpg", fail)
+                if ret:
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                           + buf.tobytes() + b"\r\n")
+                await asyncio.sleep(0.5)
+                continue
+
             process_frame = frame.copy()
-            
-            # Apply pipeline toggles
+
+            # Run inference in thread pool — keeps event loop free (B-07)
             if pipeline_state["enable_detection"]:
-                detections, annotated = pipeline.process_frame(process_frame, frame_idx)
+                try:
+                    detections, annotated = await loop.run_in_executor(
+                        None, pipeline.process_frame, process_frame, frame_idx
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Unexpected pipeline error at frame %d (%s: %s); serving raw frame.",
+                        frame_idx, type(exc).__name__, exc,
+                    )
+                    detections, annotated = sv.Detections.empty(), process_frame
                 obj_len = len(detections) if detections is not None else 0
             else:
-                annotated = process_frame
-                obj_len = 0
-                
+                detections, annotated, obj_len = None, process_frame, 0
+
             if not pipeline_state["show_annotations"]:
                 annotated = process_frame
 
             frame_idx += 1
-            
-            # Update telemetry
+
             latency = int((time.time() - start_time) * 1000)
             current_telemetry["latency"] = latency
             current_telemetry["objectCount"] = obj_len
             current_telemetry["fps"] = int(1000 / latency) if latency > 0 else 0
-            
-            if pipeline_state["enable_detection"] and detections is not None and len(detections) > 0:
-                current_telemetry["avgConfidence"] = float(np.mean(detections.confidence))
-            else:
-                current_telemetry["avgConfidence"] = 0.0
-            
-            ret, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-            if not ret:
-                continue
-                
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            
-            # Ensure we don't blast the network faster than the browser can render
-            time.sleep(0.01)
-            
+            current_telemetry["avgConfidence"] = (
+                float(np.mean(detections.confidence))
+                if detections is not None and len(detections) > 0 else 0.0
+            )
+
+            ret, buf = cv2.imencode(".jpg", annotated,
+                                    [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if ret:
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                       + buf.tobytes() + b"\r\n")
+
+            await asyncio.sleep(0.01)
+
     finally:
-        if threaded_cap:
-            threaded_cap.release()
+        if cap is not None:
+            _release_capture()
+
 
 @app.get("/video_feed")
 async def video_feed():
-    return StreamingResponse(feed_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(
+        feed_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
 @app.websocket("/ws/live-stream")
 async def websocket_endpoint(websocket: WebSocket):

@@ -9,6 +9,7 @@ import os
 import json
 import cv2
 import numpy as np
+import supervision as sv
 from typing import Tuple, Dict, Any, Optional
 
 from ..detection.detector_factory import DetectorFactory
@@ -19,6 +20,7 @@ from ..analytics.visitor_analytics import VisitorAnalytics
 from ..labeling.auto_labeler import AutoLabeler
 from ..training.drift_detector import DriftDetector
 from ..logging import get_logger
+from ..utils.circuit_breaker import CircuitBreaker
 
 logger = get_logger(__name__)
 
@@ -70,6 +72,15 @@ class InferencePipeline:
         self.mode = config.get('mode', {}).get('type', 'offline')
         self.output_dir = config.get('mode', {}).get('output_dir', 'runs/inference')
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # One circuit breaker per pipeline stage — failure policy centralised in CircuitBreaker
+        self._cb_detect   = CircuitBreaker("detect",   failure_threshold=3, recovery_frames=300)
+        self._cb_track    = CircuitBreaker("track",    failure_threshold=5, recovery_frames=150)
+        self._cb_analytics = CircuitBreaker("analytics")
+        self._cb_labeler  = CircuitBreaker("labeler")
+        self._cb_drift    = CircuitBreaker("drift")
+        self._cb_annotate = CircuitBreaker("annotate", failure_threshold=5, recovery_frames=150)
+
         logger.info(f"Pipeline initialized successfully (output_dir={self.output_dir})")
 
     def process_frame(self, frame: np.ndarray, frame_idx: int = 0) -> Tuple[Any, np.ndarray]:
@@ -82,26 +93,53 @@ class InferencePipeline:
         Returns:
             A tuple containing (supervision.Detections, annotated_frame).
         """
-        detections = self.detector.detect(frame)
+        # Stage 1 — Detection (hard failure: no detections → return raw frame immediately)
+        detections = self._cb_detect.call(
+            self.detector.detect, frame, frame_idx=frame_idx, fallback=None
+        )
+        if detections is None:
+            return sv.Detections.empty(), frame
 
+        # Stage 2 — Tracking (soft failure: keep untracked detections, no IDs)
         if self.tracker is not None:
-            detections = self.tracker.update(detections)
+            detections = self._cb_track.call(
+                self.tracker.update, detections,
+                frame_idx=frame_idx, fallback=detections,
+            )
 
-        self.analytics.update(
+        # Stage 3 — Analytics (non-critical: skip on failure)
+        self._cb_analytics.call(
+            self.analytics.update,
             detections.tracker_id if detections.tracker_id is not None else [],
             frame_idx,
+            frame_idx=frame_idx, fallback=None,
         )
 
-        # Collect auto-labels from high-confidence detections
-        self.auto_labeler.collect(frame, detections, image_id=f"frame_{frame_idx}")
+        # Stage 4 — Auto-labeler (non-critical: skip on failure)
+        self._cb_labeler.call(
+            self.auto_labeler.collect, frame, detections,
+            frame_idx=frame_idx, fallback=None,
+            image_id=f"frame_{frame_idx}",
+        )
 
-        # Record confidences for drift detection
+        # Stage 5 — Drift detection (non-critical: skip on failure)
         if detections.confidence is not None and len(detections) > 0:
-            self.drift_detector.record(detections.confidence.tolist())
+            self._cb_drift.call(
+                self.drift_detector.record, detections.confidence.tolist(),
+                frame_idx=frame_idx, fallback=None,
+            )
 
-        labels = FrameAnnotator.build_labels(detections)
-        annotated = self.annotator.annotate(frame, detections, labels)
+        # Stage 6 — Annotation (soft failure: return raw frame)
+        annotated = self._cb_annotate.call(
+            self._annotate, frame, detections,
+            frame_idx=frame_idx, fallback=frame,
+        )
+
         return detections, annotated
+
+    def _annotate(self, frame: np.ndarray, detections) -> np.ndarray:
+        labels = FrameAnnotator.build_labels(detections)
+        return self.annotator.annotate(frame, detections, labels)
 
     # ---- Offline mode: batch process a video file ----
 

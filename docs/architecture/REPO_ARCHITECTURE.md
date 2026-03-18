@@ -35,7 +35,7 @@ src/vision_ml/
 ├── logging/                # shared logging utilities
 ├── tracking/               # tracker interfaces + implementations
 ├── training/               # training logic and helpers
-├── utils/                  # config + utility modules
+├── utils/                  # config, circuit breaker, and utility modules
 └── mlflow_integration.py   # MLflow helper integrations
 ```
 
