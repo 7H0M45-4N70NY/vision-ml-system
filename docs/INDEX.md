@@ -1,57 +1,36 @@
-# 📑 Vision ML System Documentation
+# Vision ML System Documentation Index
 
-Welcome to the official documentation for the **Vision ML System**. This project is a production-grade template for retail analytics, featuring person detection, tracking, and a full MLOps lifecycle.
+This file is the single navigation entrypoint for project docs.
 
----
+## 1) Start Here
 
-## 🚀 Getting Started
-*Essential guides to get the system running on your machine.*
+- Project overview: [../README.md](../README.md)
+- Quick setup: [getting-started/QUICKSTART.md](./getting-started/QUICKSTART.md)
+- Env/config setup: [getting-started/RUN_SETUP_ENV_CONFIG.md](./getting-started/RUN_SETUP_ENV_CONFIG.md)
 
-- **[Quickstart](./getting-started/QUICKSTART.md)**: 5-minute setup and your first inference run.
-- **[Environment Setup](./getting-started/RUN_SETUP_ENV_CONFIG.md)**: Detailed guide on configuring `.env` and API keys.
-- **[System Walkthrough](./getting-started/WALKTHROUGH.md)**: A guided tour of the core features and UI.
+## 2) Architecture
 
----
+- Strategy and scope: [architecture/STRATEGY.md](./architecture/STRATEGY.md)
+- System design: [architecture/System Design.md](./architecture/System%20Design.md)
+- Repository layout: [architecture/REPO_ARCHITECTURE.md](./architecture/REPO_ARCHITECTURE.md)
 
-## 🏗️ Architecture & Strategy
-*How the system is built and why we made these decisions.*
+## 3) Data, Training, and MLOps
 
-- **[System Strategy](./architecture/STRATEGY.md)**: The "Flywheel" philosophy and privacy-first design.
-- **[Technical Architecture](./architecture/architecture.md)**: High-level component diagrams and data flow.
-- **[Repository Structure](./architecture/REPO_ARCHITECTURE.md)**: Module organization and coding conventions.
-- **[Master Design Plan](./architecture/System%20Design.md)**: The original blueprint for the vision system.
+- Dataset and DVC layout: [guides/DATASET_STRUCTURE.md](./guides/DATASET_STRUCTURE.md)
+- Training pipeline: [guides/TRAINING_PIPELINE.md](./guides/TRAINING_PIPELINE.md)
+- DagsHub + MLflow + DVC: [guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md](./guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md)
+- Secrets management: [guides/SECRETS_INJECTION_PATTERN.md](./guides/SECRETS_INJECTION_PATTERN.md)
+- Roboflow integration: [guides/ROBOFLOW_GUIDE.md](./guides/ROBOFLOW_GUIDE.md)
+- Hybrid detector modes: [guides/HYBRID_DETECTOR_MODES.md](./guides/HYBRID_DETECTOR_MODES.md)
+- Scaling notes: [guides/scaling.md](./guides/scaling.md)
 
----
+## 4) Engineering Practices
 
-## 📘 Developer & ML Guides
-*Deep dives into specific modules and workflows.*
+- Development standards: [DEVELOPMENT.md](./DEVELOPMENT.md)
+- Active execution plan: [../WORKPLAN.md](../WORKPLAN.md)
 
-### Data & Training
-- **[Dataset Structure](./guides/DATASET_STRUCTURE.md)**: DVC, YOLO formats, and data versioning.
-- **[Training Pipeline](./guides/TRAINING_PIPELINE.md)**: How to train, tune, and register models.
-- **[Roboflow Integration](./guides/ROBOFLOW_GUIDE.md)**: Active learning and cloud-based labeling.
+## Documentation Lifecycle Policy
 
-### MLOps & Optimization
-- **[MLflow & DagsHub](./guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md)**: Remote experiment tracking and metrics.
-- **[Model Quantization](./guides/MODEL_QUANTIZATION_GUIDE.md)**: Optimizing for edge devices (ONNX, FP16).
-- **[Hybrid Detector Modes](./guides/HYBRID_DETECTOR_MODES.md)**: Using the YOLO + RF-DETR dual setup.
-- **[Performance Scaling](./guides/scaling.md)**: Latency benchmarks and throughput analysis.
-
----
-
-## 🛠️ API Reference
-*Detailed technical specifications for internal and external APIs.*
-
-- **[Core Package (src/vision_ml)](./api/README.md)**: Package-level documentation. (Coming Soon)
-- **[REST API Specification](./api/api_spec.md)**: FastAPI endpoints and WebSocket protocols. (Coming Soon)
-
----
-
-## 📂 Project Governance
-- **[WORKPLAN.md](../WORKPLAN.md)**: The active roadmap and task backlog.
-- **[AGENTS.md](../AGENTS.md)**: Guidelines for AI-assisted development (Jules).
-- **[Archive](./archive/)**: Historical design docs and wave summaries.
-
----
-
-> **Looking for the code?** The source is located in the `src/` directory. All CLI scripts are in `scripts/`.
+- Keep docs that describe current behavior and current architecture.
+- Remove deprecated or duplicate docs instead of stacking alternatives.
+- Prefer one canonical file per topic; link to it from here and README.

@@ -50,7 +50,7 @@ Not toy code. Not overengineered chaos. **Production thinking at portfolio scale
 ## Architecture Summary (Final Form)
 
 ### Vision Layer
-- YOLO26 (person + product category detection)
+- YOLO11n / RF-DETR (config-selectable detection)
 - ByteTrack (persistent visitor IDs)
 - Interaction rule engine
 
@@ -118,7 +118,7 @@ But that you can explain:
 ## Phase 1: Core System (This Phase)
 
 ### Detection + Tracking
-- YOLO26 modular integration
+- YOLO11n modular integration
 - ByteTrack persistent tracking
 - Config-driven inference
 

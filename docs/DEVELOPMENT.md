@@ -11,7 +11,7 @@
 - Abstract base classes for interfaces
 
 ### 2. Naming Conventions
-- Classes: `PascalCase` (e.g., `YOLO26Detector`)
+- Classes: `PascalCase` (e.g., `YOLO11Detector`)
 - Functions: `snake_case` (e.g., `load_config`)
 - Constants: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_BATCH_SIZE`)
 - Private methods: `_snake_case` (e.g., `_preprocess_image`)
@@ -88,17 +88,17 @@ python scripts/train.py \
 ```bash
 # Inference on single image
 python scripts/inference.py \
-  --model models/yolo26_best.pt \
+  --model models/yolo11n_best.pt \
   --image path/to/image.jpg
 
 # Inference on video
 python scripts/inference.py \
-  --model models/yolo26_best.pt \
+  --model models/yolo11n_best.pt \
   --video path/to/video.mp4
 
 # Batch inference
 python scripts/inference.py \
-  --model models/yolo26_best.pt \
+  --model models/yolo11n_best.pt \
   --image_dir path/to/images/
 ```
 
@@ -149,10 +149,10 @@ Detailed explanation if needed.
 
 ### Example Commits
 ```
-[FEAT] Add YOLO26 detection module
+[FEAT] Add YOLO11n detection module
 
 - Implement BaseDetector interface
-- Add YOLO26Detector class
+- Add YOLO11Detector class
 - Add preprocessing pipeline
 - Add unit tests
 
@@ -178,8 +178,8 @@ Test individual functions/classes in isolation.
 ```python
 # tests/test_detection.py
 def test_detector_initialization():
-    detector = YOLO26Detector(model_name="yolo26")
-    assert detector.model_name == "yolo26"
+    detector = YOLO11Detector(model_name="yolo11n")
+    assert detector.model_name == "yolo11n"
 
 def test_preprocessing_pipeline():
     image = np.random.rand(480, 640, 3)
@@ -210,7 +210,7 @@ Test performance characteristics.
 ```python
 # tests/test_benchmarking.py
 def test_inference_latency():
-    detector = YOLO26Detector()
+    detector = YOLO11Detector()
     image = np.random.rand(480, 640, 3)
     
     start = time.time()
@@ -226,7 +226,7 @@ def test_inference_latency():
 ```yaml
 # config/training/test.yaml
 model:
-  name: yolo26
+  name: yolo11n
   pretrained: false
 
 training:
@@ -320,7 +320,7 @@ def detect(self, image: np.ndarray) -> List[Dict]:
         - bbox: [x1, y1, x2, y2]
     
     Example:
-        >>> detector = YOLO26Detector()
+        >>> detector = YOLO11Detector()
         >>> image = cv2.imread("image.jpg")
         >>> detections = detector.detect(image)
     """
@@ -337,13 +337,13 @@ def detect(self, image: np.ndarray) -> List[Dict]:
 
 ### Architecture Decision Record (ADR)
 ```markdown
-# ADR-001: Use YOLO26 for Detection
+# ADR-001: Use YOLO11n for Detection
 
 ## Context
 Need to choose object detection model for retail analytics.
 
 ## Decision
-Use YOLO26 (YOLOv8 Nano) for detection.
+Use YOLO11n for detection.
 
 ## Rationale
 - Fast inference (real-time capable)

@@ -1,86 +1,16 @@
-# Vision ML System — Retail Analytics MVP
+# VisionFlow — Retail Analytics System
 
-A production-grade vision system for retail analytics with controlled scope, strong MLOps backbone, and interview-ready architecture.
+A production-grade computer vision system for retail analytics. Combines real-time person detection and tracking with a full MLOps backbone: experiment tracking, dataset versioning, active learning, and a live web dashboard.
 
-## 🎯 Project Goal
+## Overview
 
-Build a **clean, engineered Retail Analytics MVP** that demonstrates:
-- ✅ Modular detection + tracking pipeline
-- ✅ Reproducible training with MLflow
-- ✅ Dataset versioning with DVC
-- ✅ Production-grade secrets management (3-layer architecture)
-- ✅ Multi-source data ingestion (local + Roboflow)
-- ✅ Label schema validation (fail-fast)
-- 🔄 Drift simulation and monitoring
-- 🔄 Performance benchmarking
-- 🔄 Scaling analysis
+VisionFlow ingests video from webcams, RTSP streams, or local files and outputs structured visitor analytics — dwell time, traffic patterns, detection confidence drift — all surfaced through a Next.js dashboard backed by a FastAPI inference server.
 
-**Not** building Amazon Go. Building a **portfolio-grade system** with 5–10 SKUs, controlled environment, and realistic MLOps practices.
-
-## 📚 Documentation
-
-### Core Architecture
-- **[Strategic Vision](docs/architecture/STRATEGY.md)** — MVP scope, architecture decisions, why this approach
-- **[System Design](docs/architecture/System%20Design.md)** — Detection, tracking, inference pipeline
-- **[Repository Architecture](docs/architecture/REPO_ARCHITECTURE.md)** — Directory structure, module organization
-
-### Setup & Configuration
-- **[Quick Start](docs/getting-started/QUICKSTART.md)** — Get running in 5 minutes
-- **[Run Setup (Env + Config)](docs/getting-started/RUN_SETUP_ENV_CONFIG.md)** — Environment variables and config mapping
-- **[Secrets Injection Pattern](docs/guides/SECRETS_INJECTION_PATTERN.md)** — Production-grade secrets management (3-layer: YAML → ENV → Code)
-
-### Data & Training
-- **[Dataset Structure](docs/guides/DATASET_STRUCTURE.md)** — DVC layout, versioning strategy
-- **[Training Pipeline](docs/guides/TRAINING_PIPELINE.md)** — MLflow config, hyperparameters, reproducibility
-- **[DagsHub + MLflow + DVC Integration](docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md)** — End-to-end MLOps setup
-
-### Advanced Topics
-- **[Hybrid Detector Modes](docs/guides/HYBRID_DETECTOR_MODES.md)** — Dual-model setup for active learning
-- **[Scaling Analysis](docs/guides/SCALING.md)** — Performance benchmarks, bottleneck analysis
-- **[Development Guide](docs/DEVELOPMENT.md)** — Contributing, testing, CI/CD
-
-## 🚀 Quick Start
-
-### 🐳 Docker (Recommended)
-
-Run the full system (Streamlit Dashboard + API) in a container:
-
-```bash
-# Build and start
-docker-compose up --build
-
-# Access Dashboard: http://localhost:8501
-# Access API Docs: http://localhost:8000/docs
-```
-
-### 🐍 Local Development
-
-```bash
-# Setup environment
-conda activate ./venv
-pip install -r requirements.txt
-
-# Create env file from template
-copy .env.example .env
-
-# Run Inference API
-uvicorn src.vision_ml.api.main:app --reload
-
-# Run Dashboard (Streamlit)
-streamlit run home.py
-```
-
-### 🧪 Testing & CI/CD
-
-This project uses **GitHub Actions** for automated testing and linting.
-
-```bash
-# Run unit tests
-pytest tests/
-
-# Run linting
-ruff check .
-```
+Key design principles:
+- **Config-driven** — no hardcoded thresholds; everything lives in YAML
+- **Pluggable detectors** — swap YOLO ↔ RF-DETR via a single config flag
+- **Active learning loop** — low-confidence frames are auto-captured, triaged in the UI, and fed back into training
+- **Privacy-first** — fully local, no cloud dependency for inference
 
 ## 🏗 Architecture Overview
 
@@ -89,134 +19,127 @@ Input Video
     ↓
 Frame Extraction
     ↓
-Person Detection (YOLO26)
+Person Detection (YOLO11n / RF-DETR)
     ↓
 Multi-Object Tracking (ByteTrack)
     ↓
 Interaction Rule Engine
     ↓
-Analytics Output
+Visitor Analytics (dwell time, unique counts)
+    ↓
+Auto-Labeler + Drift Detector
+    ↓
+Dashboard (Next.js + FastAPI + SQLite)
 ```
 
 ## 🔧 Tech Stack
 
-- **Detection**: YOLO26 (person + product category)
+- **Detection**: YOLO11n + RF-DETR (dual detector mode)
 - **Tracking**: ByteTrack
 - **Training**: PyTorch + MLflow
 - **Data Versioning**: DVC
 - **Monitoring**: Prometheus + Grafana (Phase 2)
 - **Orchestration**: Airflow (Phase 2)
 
-## 📖 Learning Outcomes
+## Quick Start
 
-By completion, you'll understand:
-- Why small SKU sets are strategically chosen
-- How drift is simulated and detected
-- How retraining pipelines are triggered
-- Model promotion and version rollback
-- Production inference scaling
-- MLOps best practices
-
-This is **senior-level portfolio material**.
-
-## 🔐 Secrets Management (Production-Ready)
-
-The system uses a **3-layer secrets architecture** (YAML → ENV → Code):
-
-1. **YAML Configuration** (`config/training/base.yaml`): Structure and parameters only
-2. **Environment Variables** (`.env` or CI/CD): API keys and credentials
-3. **Code Logic** (`src/vision_ml/utils/config.py`): Centralized injection via `inject_secrets()`
-
-**Benefits:**
-- ✅ Secrets never committed to git
-- ✅ Same code for dev/staging/production
-- ✅ Safe logging (no credential leaks)
-- ✅ Works with Docker, K8s, CI/CD
-
-See **[Secrets Injection Pattern](docs/guides/SECRETS_INJECTION_PATTERN.md)** for details.
-
-## 📊 Data Ingestion Pipeline
-
-Multi-source ingestion with validation:
-
-```
-Local Sources (auto-labeled + low-confidence)
-    ↓
-Roboflow (cloud dataset)
-    ↓
-Label Schema Validation (fail-fast)
-    ↓
-Priority-based Deduplication
-    ↓
-Train/Val Split
-    ↓
-YOLO-format Dataset
-```
-
-**Features:**
-- ✅ Validates label structure before processing
-- ✅ Ensures `source` key exists for all samples
-- ✅ Type checking for boxes, class_ids, image_path
-- ✅ Detailed error logging with context
-- ✅ Graceful handling of malformed data
-
-## 🚀 MLOps Integration (In Progress)
-
-- **DagsHub**: Remote model registry + experiment tracking
-- **MLflow**: Reproducible training runs with parameter logging
-- **DVC**: Dataset versioning and pipeline reproducibility
-- **GitHub Actions**: Automated testing and linting
-
-See **[DagsHub + MLflow + DVC Integration](docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md)**.
-
-## � Running Data Preparation
+### Docker
 
 ```bash
-# Prepare from local sources (auto-labeled + low-confidence frames)
-python scripts/prepare_data.py --config config/training/base.yaml --source local
+docker-compose up --build
+# Dashboard: http://localhost:3000
+# API docs:  http://localhost:8000/docs
+```
 
-# Download from Roboflow (requires ROBOFLOW_API_KEY in .env)
-python scripts/prepare_data.py --config config/training/base.yaml --source roboflow
+### Local Development
 
-# Combine both sources
+```bash
+# Install dependencies (Python)
+pip install -r requirements.txt
+
+# Copy environment template and fill in credentials
+cp .env.example .env
+
+# Start the inference API
+uvicorn src.vision_ml.api.main:app --reload
+
+# Start the dashboard (separate terminal)
+cd frontend && npm install && npm run dev
+```
+
+## Usage
+
+```bash
+# Offline inference on a video file
+python scripts/inference.py --mode offline --source path/to/video.mp4
+
+# Train with MLflow tracking
+python scripts/train.py --config config/training/base.yaml --trigger manual
+
+# Prepare training data (local + Roboflow)
 python scripts/prepare_data.py --config config/training/base.yaml --source both
+
+# Launch MLflow experiment UI
+mlflow ui
 ```
 
-Output: `data/prepared/dataset.yaml` (YOLO format, ready for training)
+## Documentation
 
-## 🧪 Testing
+| Topic | Link |
+|---|---|
+| System design | [docs/architecture/System Design.md](docs/architecture/System%20Design.md) |
+| Repository layout | [docs/architecture/REPO_ARCHITECTURE.md](docs/architecture/REPO_ARCHITECTURE.md) |
+| Quick start guide | [docs/getting-started/QUICKSTART.md](docs/getting-started/QUICKSTART.md) |
+| Environment & config | [docs/getting-started/RUN_SETUP_ENV_CONFIG.md](docs/getting-started/RUN_SETUP_ENV_CONFIG.md) |
+| Secrets management | [docs/guides/SECRETS_INJECTION_PATTERN.md](docs/guides/SECRETS_INJECTION_PATTERN.md) |
+| Dataset structure | [docs/guides/DATASET_STRUCTURE.md](docs/guides/DATASET_STRUCTURE.md) |
+| Training pipeline | [docs/guides/TRAINING_PIPELINE.md](docs/guides/TRAINING_PIPELINE.md) |
+| MLOps integration | [docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md](docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md) |
+| Dual detector modes | [docs/guides/HYBRID_DETECTOR_MODES.md](docs/guides/HYBRID_DETECTOR_MODES.md) |
+| Scaling analysis | [docs/guides/scaling.md](docs/guides/scaling.md) |
+| Development guide | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+
+## Secrets Management
+
+Three-layer secrets architecture keeps credentials out of version control:
+
+1. **YAML** (`config/`) — structure and non-sensitive parameters only
+2. **Environment variables** (`.env` / CI secrets) — API keys and credentials
+3. **Code** (`src/vision_ml/utils/config.py`) — injection via `inject_secrets()`
+
+Works with local `.env`, Docker environment, Kubernetes secrets, and CI/CD pipelines without code changes.
+
+## Data Pipeline
+
+```
+Local auto-labeled frames
+Local low-confidence captures
+Roboflow cloud dataset
+        ↓
+  Label schema validation (fail-fast)
+        ↓
+  Priority-based deduplication
+        ↓
+  Train / val split
+        ↓
+  YOLO-format dataset  →  Training
+```
+
+## Testing
 
 ```bash
-# Run all tests
 pytest tests/
-
-# Run specific test file
 pytest tests/test_analytics.py -v
-
-# Run with coverage
 pytest tests/ --cov=src/vision_ml
 ```
 
-## 📦 Dependencies
+## Contributing
 
-See `requirements.txt` for full list. Key packages:
-- `ultralytics` — YOLO11 detection
-- `supervision` — Detection/tracking utilities
-- `mlflow` — Experiment tracking
-- `dvc` — Data versioning
-- `pydantic` — Config validation
-- `fastapi` — API framework
-- `streamlit` — Dashboard
+1. Branch: `git checkout -b feat/your-feature`
+2. Test: `pytest tests/`
+3. Commit: `git commit -m "feat: description"`
+4. Open a pull request
 
-## 🤝 Contributing
+## License
 
-1. Create feature branch: `git checkout -b feat/your-feature`
-2. Make changes and test: `pytest tests/`
-3. Commit with clear message: `git commit -m "feat: description"`
-4. Push and open PR
-
-See **[Development Guide](docs/DEVELOPMENT.md)** for details.
-
-## 📄 License
-
-MIT License — See LICENSE file for details.
+MIT — see [LICENSE](LICENSE) for details.
