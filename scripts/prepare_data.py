@@ -19,15 +19,103 @@ import glob
 import shutil
 import random
 import argparse
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from vision_ml.utils.config import load_config
+from vision_ml.utils.config import load_config, inject_secrets
 from vision_ml.logging import get_logger
 from vision_ml.events.publishers import get_pipeline_event_publisher
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 logger = get_logger(__name__)
+
+
+class LabelValidationError(ValueError):
+    """Raised when label structure is invalid."""
+    pass
+
+
+def validate_label_schema(label: Any, source: str = 'unknown') -> Dict[str, Any]:
+    """Validate label dict has required keys and correct types.
+    
+    Args:
+        label: Label dict to validate
+        source: Source name for error context ('local', 'roboflow', etc.)
+        
+    Returns:
+        Validated label dict
+        
+    Raises:
+        LabelValidationError: If label is invalid
+    """
+    if not isinstance(label, dict):
+        raise LabelValidationError(
+            f"[{source}] Expected label to be dict, got {type(label).__name__}"
+        )
+    
+    # Validate required keys
+    required_keys = {'image_path', 'boxes', 'class_ids'}
+    missing = required_keys - set(label.keys())
+    if missing:
+        raise LabelValidationError(
+            f"[{source}] Missing required keys: {missing}. Label: {label}"
+        )
+    
+    # Validate types
+    if not isinstance(label['boxes'], list):
+        raise LabelValidationError(
+            f"[{source}] 'boxes' must be list, got {type(label['boxes']).__name__}"
+        )
+    if not isinstance(label['class_ids'], list):
+        raise LabelValidationError(
+            f"[{source}] 'class_ids' must be list, got {type(label['class_ids']).__name__}"
+        )
+    if not isinstance(label['image_path'], str):
+        raise LabelValidationError(
+            f"[{source}] 'image_path' must be str, got {type(label['image_path']).__name__}"
+        )
+    
+    # Validate source key exists
+    if 'source' not in label:
+        raise LabelValidationError(
+            f"[{source}] Missing 'source' key. Label: {label}"
+        )
+    if not isinstance(label['source'], str):
+        raise LabelValidationError(
+            f"[{source}] 'source' must be str, got {type(label['source']).__name__}"
+        )
+    
+    return label
+
+
+def get_label_source(label: Dict[str, Any]) -> str:
+    """Extract and validate source from label.
+    
+    Args:
+        label: Label dict
+        
+    Returns:
+        Source string
+        
+    Raises:
+        LabelValidationError: If source key missing or invalid
+    """
+    source = label.get('source')
+    if source is None:
+        raise LabelValidationError(
+            f"Missing required 'source' key in label: {label}"
+        )
+    if not isinstance(source, str):
+        raise LabelValidationError(
+            f"Expected source to be str, got {type(source).__name__}: {source}"
+        )
+    return source
 
 
 def _sample_key(image_path: str) -> str:
@@ -48,35 +136,54 @@ def _dedupe_samples(samples: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
 
 
 def _validate_samples(samples: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
-    """Drop invalid sample rows before dataset build."""
+    """Drop invalid sample rows before dataset build.
+    
+    Validates:
+    - Image file exists
+    - Label schema is correct
+    - Source key exists
+    - Boxes and class_ids are lists
+    """
     valid: List[Tuple[str, Dict]] = []
     invalid_count = 0
+    
     for img_path, label in samples:
-        if not img_path or not os.path.isfile(img_path):
+        try:
+            # Validate image path
+            if not img_path or not os.path.isfile(img_path):
+                logger.debug("Skipping non-existent image: %s", img_path)
+                invalid_count += 1
+                continue
+            
+            # Validate label schema (includes source key check)
+            source = get_label_source(label)
+            validate_label_schema(label, source=source)
+            
+            # Ensure class_ids matches boxes length
+            boxes = label['boxes']
+            class_ids = label['class_ids']
+            if boxes and len(class_ids) < len(boxes):
+                class_ids = class_ids + [0] * (len(boxes) - len(class_ids))
+                label['class_ids'] = class_ids
+            
+            valid.append((img_path, label))
+            
+        except LabelValidationError as e:
+            logger.warning("Invalid sample [%s]: %s", img_path, e)
             invalid_count += 1
             continue
-
-        boxes = label.get('boxes', [])
-        class_ids = label.get('class_ids', [])
-        if not isinstance(boxes, list) or not isinstance(class_ids, list):
-            invalid_count += 1
-            continue
-
-        if boxes and len(class_ids) < len(boxes):
-            # Fill missing class IDs with class 0 to preserve annotations.
-            class_ids = class_ids + [0] * (len(boxes) - len(class_ids))
-            label['class_ids'] = class_ids
-
-        valid.append((img_path, label))
-
+    
     if invalid_count:
         logger.warning("Dropped %d invalid samples during validation", invalid_count)
     return valid
 
 
-def collect_local_labels(auto_dir: str, low_conf_dir: str):
-    """Gather (image_path, label_dict) pairs from local directories."""
-    samples = []
+def collect_local_labels(auto_dir: str, low_conf_dir: str) -> List[Tuple[str, Dict]]:
+    """Gather (image_path, label_dict) pairs from local directories.
+    
+    Ensures all labels have 'source' key set to 'local'.
+    """
+    samples: List[Tuple[str, Dict]] = []
 
     # From auto-labeled (warm-path collected frames)
     label_file = os.path.join(auto_dir, 'auto_labels.json')
@@ -84,9 +191,17 @@ def collect_local_labels(auto_dir: str, low_conf_dir: str):
         with open(label_file) as f:
             labels = json.load(f)
         for lbl in labels:
-            img = lbl.get('image_path')
-            if img and os.path.isfile(img):
+            try:
+                img = lbl.get('image_path')
+                if not img or not os.path.isfile(img):
+                    logger.debug("Skipping missing image from auto_labels.json: %s", img)
+                    continue
+                # Ensure source key exists
+                lbl['source'] = 'local'
                 samples.append((img, lbl))
+            except Exception as e:
+                logger.warning("Error processing auto-label: %s", e)
+                continue
 
     # From auto-labeled images dir (warm-path images without JSON envelope)
     img_dir = os.path.join(auto_dir, 'images')
@@ -97,31 +212,60 @@ def collect_local_labels(auto_dir: str, low_conf_dir: str):
             if any(s[0] == img_path for s in samples):
                 continue
             samples.append((img_path, {
-                'image_id': frame_id, 'image_path': img_path,
-                'boxes': [], 'confidences': [], 'class_ids': [],
+                'image_id': frame_id,
+                'image_path': img_path,
+                'boxes': [],
+                'confidences': [],
+                'class_ids': [],
+                'source': 'local',
             }))
 
     # From low-confidence frames (cold-path DualDetector output)
     if os.path.isdir(low_conf_dir):
         for jf in sorted(glob.glob(os.path.join(low_conf_dir, '*.json'))):
-            img = jf.replace('.json', '.jpg')
-            if not os.path.isfile(img):
+            try:
+                img = jf.replace('.json', '.jpg')
+                if not os.path.isfile(img):
+                    logger.debug("Skipping missing image for label: %s", jf)
+                    continue
+                with open(jf) as f:
+                    lbl = json.load(f)
+                lbl['image_path'] = img
+                lbl['image_id'] = os.path.splitext(os.path.basename(jf))[0]
+                lbl['source'] = 'local'
+                samples.append((img, lbl))
+            except Exception as e:
+                logger.warning("Error processing low-confidence label %s: %s", jf, e)
                 continue
-            with open(jf) as f:
-                lbl = json.load(f)
-            lbl['image_path'] = img
-            lbl['image_id'] = os.path.splitext(os.path.basename(jf))[0]
-            samples.append((img, lbl))
 
     return samples
 
 
-def download_roboflow_dataset(config: dict, version: int, dest: str):
-    """Download a specific Roboflow dataset version in YOLOv8 format."""
+def download_roboflow_dataset(config: dict, version: int, dest: str) -> str:
+    """Download a specific Roboflow dataset version in YOLOv8 format.
+    
+    Expects config to have secrets already injected via inject_secrets().
+    
+    Args:
+        config: Configuration dict with injected secrets
+        version: Roboflow dataset version to download
+        dest: Destination directory
+        
+    Returns:
+        Path to downloaded dataset, or None if download failed/skipped
+    """
     label_cfg = config.get('labeling', {})
-    api_key = label_cfg.get('roboflow_api_key') or os.environ.get('ROBOFLOW_API_KEY')
+    api_key = label_cfg.get('roboflow_api_key')
     workspace = label_cfg.get('roboflow_workspace')
     project = label_cfg.get('roboflow_project')
+
+    # Log config state without leaking secrets
+    logger.info(
+        "Roboflow config loaded | workspace=%s project=%s api_key_present=%s",
+        workspace,
+        project,
+        bool(api_key)
+    )
 
     if not api_key or not workspace or not project:
         logger.warning("Roboflow credentials not configured. Skipping download.")
@@ -143,7 +287,11 @@ def download_roboflow_dataset(config: dict, version: int, dest: str):
 
 
 def collect_roboflow_samples(dataset_root: str) -> List[Tuple[str, Dict]]:
-    """Convert downloaded Roboflow YOLO dataset to internal sample records."""
+    """Convert downloaded Roboflow YOLO dataset to internal sample records.
+    
+    Ensures all labels have 'source' key set to 'roboflow'.
+    Validates label structure before adding to samples.
+    """
     samples: List[Tuple[str, Dict]] = []
 
     import cv2
@@ -155,44 +303,45 @@ def collect_roboflow_samples(dataset_root: str) -> List[Tuple[str, Dict]]:
             continue
 
         for image_path in sorted(glob.glob(os.path.join(image_dir, '*'))):
-            base = os.path.splitext(os.path.basename(image_path))[0]
-            label_path = os.path.join(label_dir, f"{base}.txt")
-            if not os.path.isfile(label_path):
-                continue
+            try:
+                base = os.path.splitext(os.path.basename(image_path))[0]
+                label_path = os.path.join(label_dir, f"{base}.txt")
+                if not os.path.isfile(label_path):
+                    logger.debug("[roboflow] Missing label file: %s", label_path)
+                    continue
 
-            img = cv2.imread(image_path)
-            if img is None:
-                continue
+                img = cv2.imread(image_path)
+                if img is None:
+                    logger.debug("[roboflow] Failed to read image: %s", image_path)
+                    continue
 
-            h, w = img.shape[:2]
-            boxes = []
-            class_ids = []
+                h, w = img.shape[:2]
+                boxes = []
+                class_ids = []
 
-            with open(label_path, 'r', encoding='utf-8') as fh:
-                for line in fh:
-                    parts = line.strip().split()
-                    if len(parts) != 5:
-                        continue
-                    cls_id, cx, cy, bw, bh = parts
-                    try:
-                        class_id = int(float(cls_id))
-                        cx = float(cx)
-                        cy = float(cy)
-                        bw = float(bw)
-                        bh = float(bh)
-                    except ValueError:
-                        continue
+                with open(label_path, 'r', encoding='utf-8') as fh:
+                    for line in fh:
+                        parts = line.strip().split()
+                        if len(parts) != 5:
+                            continue
+                        cls_id, cx, cy, bw, bh = parts
+                        try:
+                            class_id = int(float(cls_id))
+                            cx = float(cx)
+                            cy = float(cy)
+                            bw = float(bw)
+                            bh = float(bh)
+                        except ValueError:
+                            continue
 
-                    x1 = max(0.0, (cx - bw / 2.0) * w)
-                    y1 = max(0.0, (cy - bh / 2.0) * h)
-                    x2 = min(float(w), (cx + bw / 2.0) * w)
-                    y2 = min(float(h), (cy + bh / 2.0) * h)
-                    boxes.append([x1, y1, x2, y2])
-                    class_ids.append(class_id)
+                        x1 = max(0.0, (cx - bw / 2.0) * w)
+                        y1 = max(0.0, (cy - bh / 2.0) * h)
+                        x2 = min(float(w), (cx + bw / 2.0) * w)
+                        y2 = min(float(h), (cy + bh / 2.0) * h)
+                        boxes.append([x1, y1, x2, y2])
+                        class_ids.append(class_id)
 
-            samples.append((
-                image_path,
-                {
+                label = {
                     'image_id': base,
                     'image_path': image_path,
                     'boxes': boxes,
@@ -200,7 +349,17 @@ def collect_roboflow_samples(dataset_root: str) -> List[Tuple[str, Dict]]:
                     'class_ids': class_ids,
                     'source': 'roboflow',
                 }
-            ))
+                
+                # Validate label structure before adding
+                validate_label_schema(label, source='roboflow')
+                samples.append((image_path, label))
+                
+            except LabelValidationError as e:
+                logger.warning("[roboflow] Invalid label for %s: %s", image_path, e)
+                continue
+            except Exception as e:
+                logger.warning("[roboflow] Error processing %s: %s", image_path, e)
+                continue
 
     return samples
 
@@ -284,6 +443,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
+    config = inject_secrets(config)
     publisher = get_pipeline_event_publisher(config)
     num_classes = config.get('model', {}).get('num_classes', 1)
 
@@ -299,8 +459,6 @@ def main():
         low_conf_dir = 'data/low_confidence_frames'
         local_samples = collect_local_labels(auto_dir, low_conf_dir)
         logger.info("Collected %d local samples", len(local_samples))
-        for _, label in local_samples:
-            label['source'] = 'local'
         samples.extend(local_samples)
 
     if args.source in ('roboflow', 'both'):
@@ -318,6 +476,34 @@ def main():
             })
             raise SystemExit(1)
 
+    # --- Apply priority before dedupe ---
+    priority_map = config.get('data', {}).get('source_priority', {})
+    
+    def sample_priority(sample: Tuple[str, Dict]) -> Tuple[int]:
+        """Sort key that validates source exists and uses priority map.
+        
+        Raises:
+            LabelValidationError: If source key missing or invalid
+        """
+        _, label = sample
+        try:
+            source = get_label_source(label)
+            return (priority_map.get(source, 99),)
+        except LabelValidationError as e:
+            logger.error("Cannot sort sample - invalid label: %s", e)
+            raise
+    
+    try:
+        samples.sort(key=sample_priority)
+    except LabelValidationError as e:
+        logger.error("Failed to sort samples by priority: %s", e)
+        publisher.publish('ingestion.failed', {
+            'source': args.source,
+            'reason': 'invalid_label_structure',
+            'error': str(e),
+        })
+        raise SystemExit(1)
+    
     samples = _dedupe_samples(samples)
     samples = _validate_samples(samples)
 

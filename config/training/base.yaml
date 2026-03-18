@@ -20,6 +20,9 @@ data:
   dataset_yaml: null  # Path to dataset.yaml (YOLO format). null = uses coco8 for testing
   train_path: data/raw/train
   val_path: data/raw/val
+  source_priority:
+    roboflow: 0
+    local: 1
 
 # Triggered retraining schedule
 schedule:

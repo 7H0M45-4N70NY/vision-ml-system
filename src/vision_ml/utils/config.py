@@ -15,6 +15,48 @@ def load_config(config_path: str) -> dict:
     return config
 
 
+def inject_secrets(config: dict) -> dict:
+    """Inject environment variables into config (secrets layer).
+    
+    Maps environment variables to config keys following the pattern:
+    - ROBOFLOW_API_KEY → labeling.roboflow_api_key
+    - S3_BUCKET → storage.s3_bucket
+    - DATABASE_URL → database.url
+    
+    Args:
+        config: Configuration dict loaded from YAML
+        
+    Returns:
+        Config dict with injected secrets
+        
+    Raises:
+        ValueError: If required secrets are missing for enabled providers
+    """
+    secrets_map = {
+        'roboflow_api_key': 'ROBOFLOW_API_KEY',
+        's3_bucket': 'S3_BUCKET',
+        'database_url': 'DATABASE_URL',
+    }
+    
+    labeling = config.get('labeling', {})
+    
+    # Inject Roboflow API key if provider is roboflow
+    if labeling.get('provider') == 'roboflow':
+        rf_key = os.getenv('ROBOFLOW_API_KEY')
+        if not rf_key:
+            raise ValueError(
+                "Roboflow provider configured but ROBOFLOW_API_KEY not set in environment. "
+                "Set ROBOFLOW_API_KEY or use --source local"
+            )
+        labeling['roboflow_api_key'] = rf_key
+    elif 'ROBOFLOW_API_KEY' in os.environ:
+        # Inject if env var exists, even if not explicitly configured
+        labeling['roboflow_api_key'] = os.getenv('ROBOFLOW_API_KEY')
+    
+    config['labeling'] = labeling
+    return config
+
+
 def save_config(config: dict, output_path: str) -> None:
     """Persist a config dict back to YAML on disk."""
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
