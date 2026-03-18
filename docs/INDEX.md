@@ -22,7 +22,7 @@ This file is the single navigation entrypoint for project docs.
 - Secrets management: [guides/SECRETS_INJECTION_PATTERN.md](./guides/SECRETS_INJECTION_PATTERN.md)
 - Roboflow integration: [guides/ROBOFLOW_GUIDE.md](./guides/ROBOFLOW_GUIDE.md)
 - Hybrid detector modes: [guides/HYBRID_DETECTOR_MODES.md](./guides/HYBRID_DETECTOR_MODES.md)
-- Scaling notes: [guides/scaling.md](./guides/scaling.md)
+- Scaling notes: [guides/SCALING.md](./guides/SCALING.md)
 
 ## 4) Engineering Practices
 

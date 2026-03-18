@@ -96,7 +96,7 @@ mlflow ui
 | Training pipeline | [docs/guides/TRAINING_PIPELINE.md](docs/guides/TRAINING_PIPELINE.md) |
 | MLOps integration | [docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md](docs/guides/DAGSHUB_MLFLOW_DVC_INTEGRATION.md) |
 | Dual detector modes | [docs/guides/HYBRID_DETECTOR_MODES.md](docs/guides/HYBRID_DETECTOR_MODES.md) |
-| Scaling analysis | [docs/guides/scaling.md](docs/guides/scaling.md) |
+| Scaling analysis | [docs/guides/SCALING.md](docs/guides/SCALING.md) |
 | Development guide | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 
 ## Secrets Management
