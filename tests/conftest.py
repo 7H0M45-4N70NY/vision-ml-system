@@ -135,6 +135,14 @@ except ImportError:
     mock_prom.Instrumentator.return_value.instrument.return_value.expose = MagicMock()
     sys.modules["prometheus_fastapi_instrumentator"] = mock_prom
 
+# Mock vidgear if not installed
+try:
+    import vidgear
+except ImportError:
+    sys.modules["vidgear"] = MagicMock()
+    sys.modules["vidgear.gears"] = MagicMock()
+    sys.modules["vidgear.gears"].CamGear = MagicMock()
+
 
 # ---- Fixtures ----
 

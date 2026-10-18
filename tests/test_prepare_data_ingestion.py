@@ -24,8 +24,8 @@ def test_validate_samples_filters_missing_and_fills_class_ids(tmp_path):
     cv2.imwrite(img_path, np.zeros((16, 16, 3), dtype=np.uint8))
 
     samples = [
-        (img_path, {"boxes": [[1, 1, 8, 8]], "class_ids": []}),
-        (str(tmp_path / "missing.jpg"), {"boxes": [], "class_ids": []}),
+        (img_path, {"image_path": img_path, "boxes": [[1, 1, 8, 8]], "class_ids": [], "source": "test"}),
+        (str(tmp_path / "missing.jpg"), {"image_path": str(tmp_path / "missing.jpg"), "boxes": [], "class_ids": [], "source": "test"}),
     ]
 
     validated = _validate_samples(samples)
