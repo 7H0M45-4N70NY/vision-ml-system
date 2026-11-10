@@ -20,21 +20,20 @@ You are a **Senior ML Systems Engineer**. Your role is to implement modular, pro
 
 ---
 
-## 📋 Interaction Protocol: The Workplan
+## 📋 Interaction Protocol: The Backlog
 
-Your primary backlog is **`WORKPLAN.md`**. 
+Your primary backlog is **`TODO.md`**. 
 
-### 1. Task Prioritization (PM Directive)
-- **P0-Critical:** Fixes that unblock CI/CD or the core execution path (Workstream 1).
-- **P1-High:** Wiring the "Flywheel" (Workstreams 2 & 3).
-- **P2-Medium:** Expansion of test coverage (Workstream 4).
+### 1. Task Prioritization
+- **P0-Critical:** Visual proof assets, demo GIF, video walkthrough script, and README presentation.
+- **P1-High:** Test suite hardening (`tests/test_api.py`) and environment verification (`scripts/env_check.py`).
+- **P2-Medium:** Repository release polish, `.gitignore` validation, and metadata.
 
 ### 2. Execution Workflow
-1.  **Locate:** Find a `jules`-tagged task in `WORKPLAN.md`.
-2.  **Research:** Use `GEMINI.md` for foundational mandates and `CLAUDE.md` for the strategic roadmap.
-3.  **Implement:** Follow the **Import Style** (Relative inside `src/`, Absolute in `pages/`, `sys.path` in `scripts/`).
-4.  **Verify:** Run the specific "Verify" commands in the task block. **No PR is valid without local verification.**
-5.  **Document:** Update docstrings using Google-style formatting.
+1.  **Locate:** Find an open task in `TODO.md`.
+2.  **Implement:** Follow the **Import Style** (Relative inside `src/`, Absolute in `pages/` and `src/vision_ml/api`, `sys.path` in `scripts/`).
+3.  **Verify:** Run the specific verify commands for the task.
+4.  **Document:** Keep docstrings clean and Google-style.
 
 ---
 

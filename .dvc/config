@@ -1,6 +1,8 @@
 [core]
     remote = dagshub
+    analytics = false
+    site_cache_dir = .dvc/cache
 ['remote "dagshub"']
-    url = https://dagshub.com/panikeradom/vision-ml-system.dvc
+    url = https://dagshub.com/thomas_2026/vision-ml-system.dvc
 ['remote "local"']
     url = ../data/dvc-local-remote

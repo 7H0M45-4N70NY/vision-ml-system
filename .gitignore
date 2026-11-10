@@ -16,6 +16,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/lib/
 parts/
 sdist/
 var/
@@ -200,7 +201,10 @@ data/*.db
 data/*.db-journal
 data/low_confidence_frames/
 data/auto_labeled/
+data/secondary_analysis/
 data/prepared/
+data/sample_videos/*.mp4
+!data/sample_videos/.gitkeep
 !data/.gitkeep
 
 # Research notebooks (kept local)
@@ -215,3 +219,6 @@ Research/
 docs/_build/
 shell_scripts/*.sh
 !shell_scripts/test_roboflow_pipeline.sh
+
+# Study Notes 
+thomas_cheet_sheets/

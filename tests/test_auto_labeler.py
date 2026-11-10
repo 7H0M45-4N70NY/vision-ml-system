@@ -43,3 +43,23 @@ class TestAutoLabeler:
         al.flush(out_dir)
         # Should not create file when empty
         assert not os.path.exists(os.path.join(out_dir, 'auto_labels.json'))
+
+    def test_export_zip(self, sample_config, tmp_path):
+        al = AutoLabeler(sample_config)
+        dummy_img = tmp_path / "frame_000001.jpg"
+        dummy_img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100) # dummy jpg
+        al.pending_labels = [{
+            'image_id': 'frame_000001',
+            'image_path': str(dummy_img),
+            'boxes': [[10, 10, 50, 50]],
+            'class_ids': [0],
+        }]
+        zip_path = str(tmp_path / "test_batch.zip")
+        res = al.export_zip(zip_path=zip_path, compress=False)
+        assert res == zip_path
+        assert os.path.exists(zip_path)
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            namelist = zf.namelist()
+            assert 'frame_000001.jpg' in namelist
+            assert 'frame_000001.txt' in namelist

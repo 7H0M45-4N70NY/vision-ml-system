@@ -57,12 +57,42 @@ def main():
         default=None,
         help='Override secondary detector type (e.g., rfdetr)'
     )
+    parser.add_argument(
+        '--device',
+        type=str,
+        default=None,
+        help='Compute device override (e.g., cuda, cuda:0, cpu)'
+    )
+    parser.add_argument(
+        '--update-labels',
+        action='store_true',
+        default=True,
+        help='Update low_confidence_frames JSONs with RF-DETR pseudo-labels for training (default: True)'
+    )
+    parser.add_argument(
+        '--no-update-labels',
+        dest='update_labels',
+        action='store_false',
+        help='Only analyze agreement without updating low_confidence_frames JSONs'
+    )
     args = parser.parse_args()
 
     # Load config
     config = load_config(args.config)
     if args.secondary_detector:
         config.setdefault('detection', {})['secondary_detector'] = args.secondary_detector
+
+    # Configure hardware acceleration (GPU)
+    if args.device:
+        device = args.device
+    else:
+        try:
+            import torch
+            device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        except ImportError:
+            device = 'cpu'
+    config.setdefault('inference', {})['device'] = device
+    print(f"[SecondaryBatch] Target device: {device}")
 
     # Create output directory
     os.makedirs(args.output, exist_ok=True)
@@ -84,13 +114,13 @@ def main():
         print(f"[SecondaryBatch] No frames found in {args.input}")
         return
 
-    print(f"[SecondaryBatch] Processing {len(frame_files)} frames...")
+    print(f"[SecondaryBatch] Processing {len(frame_files)} frames with {secondary_type} on {device}...")
 
     results = []
     agreement_count = 0
     disagreement_count = 0
 
-    for frame_path in frame_files:
+    for idx, frame_path in enumerate(frame_files, start=1):
         frame_id = Path(frame_path).stem
         label_path = os.path.join(args.input, f"{frame_id}.json")
 
@@ -100,15 +130,17 @@ def main():
             print(f"[SecondaryBatch] Failed to load {frame_path}")
             continue
 
-        with open(label_path, 'r') as f:
-            original_label = json.load(f)
+        original_label = {}
+        if os.path.isfile(label_path):
+            with open(label_path, 'r') as f:
+                original_label = json.load(f)
 
-        # Run secondary detector
+        # Run secondary detector (RF-DETR)
         secondary_dets = secondary.detect(image)
 
         # Compare with original (primary) detections
         primary_boxes = np.array(original_label.get('boxes', []))
-        secondary_boxes = secondary_dets.xyxy.numpy() if len(secondary_dets) > 0 else np.array([])
+        secondary_boxes = np.array(secondary_dets.xyxy) if len(secondary_dets) > 0 else np.array([])
 
         # Simple agreement check: IoU > 0.3
         if len(primary_boxes) > 0 and len(secondary_boxes) > 0:
@@ -136,6 +168,20 @@ def main():
             ),
         }
         results.append(analysis)
+
+        # Overwrite low-confidence frame label with RF-DETR teacher pseudo-labels for retraining
+        if args.update_labels:
+            updated_label = {
+                'boxes': secondary_dets.xyxy.tolist() if len(secondary_dets) > 0 else [],
+                'confidences': secondary_dets.confidence.tolist() if secondary_dets.confidence is not None else [],
+                'class_ids': secondary_dets.class_id.tolist() if secondary_dets.class_id is not None else [],
+                'source': 'rfdetr',
+            }
+            with open(label_path, 'w') as f:
+                json.dump(updated_label, f, indent=2)
+
+        if idx % 25 == 0 or idx == len(frame_files):
+            print(f"  [SecondaryBatch] Processed {idx}/{len(frame_files)} frames...")
 
     # Save results
     output_file = os.path.join(args.output, 'secondary_analysis.json')

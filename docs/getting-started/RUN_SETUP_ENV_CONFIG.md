@@ -64,28 +64,50 @@ Template file provided at:
 
 ## 5) Minimal run checklist
 
-1. Activate environment
+1. Create and activate environment (Python >= 3.13)
    ```bash
-   conda activate ./venv
+   uv venv .venv --python 3.13
+   # Windows:
+   .venv\Scripts\activate
+   # Linux/macOS:
+   source .venv/bin/activate
    ```
-2. Install dependencies
+2. Install dependencies (with CUDA 12.4 GPU acceleration)
    ```bash
-   pip install -r requirements.txt
+   # Option A: Automatic sync with uv (recommended)
+   uv sync
+
+   # Option B: Manual pip install
+   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+   uv pip install -r requirements.txt
    ```
-3. Create and edit env file
+3. Pre-flight hardware diagnosis
    ```bash
+   python scripts/check_cuda.py
+   ```
+4. Create `.env` and validate secrets
+   ```bash
+   # Windows: copy .env.example .env  |  Linux/macOS: cp .env.example .env
    copy .env.example .env
+   python scripts/env_check.py
    ```
-4. Run training
+5. Run training
    ```bash
    python scripts/train.py --trigger manual
    ```
-5. Run inference
+6. Run inference
    ```bash
    python scripts/inference.py --mode offline --source demo.mp4
    ```
-6. Run dashboard
+7. Run API & dashboard
    ```bash
+   # Fast API backend:
+   uvicorn src.vision_ml.api.main:app --reload
+
+   # Frontend Dashboard (Next.js):
+   cd frontend && npm install && npm run dev
+
+   # (Optional) Legacy Streamlit UI:
    streamlit run home.py
    ```
 

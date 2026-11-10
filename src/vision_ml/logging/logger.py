@@ -21,7 +21,27 @@ Usage:
 import logging
 import sys
 import os
+import warnings
 from typing import Optional
+
+# Suppress known non-actionable deprecation warnings from third-party ML dependencies (Ultralytics, PyTorch)
+warnings.filterwarnings("ignore", message=r".*['\"]?half['\"]? is deprecated.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"ultralytics.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"ultralytics.*")
+
+
+class _UltralyticsDeprecationFilter(logging.Filter):
+    """Filter out deprecation warnings issued directly via logger.warning in Ultralytics."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "half" in msg and "deprecated" in msg:
+            return False
+        return True
+
+
+# Attach filter to ultralytics logger to catch library-level logger.warning calls
+logging.getLogger("ultralytics").addFilter(_UltralyticsDeprecationFilter())
 
 
 class LoggerConfig:

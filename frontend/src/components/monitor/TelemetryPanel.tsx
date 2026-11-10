@@ -2,17 +2,16 @@
 
 import { useStore } from "@/store/useStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import React, { useEffect, useState } from "react";
+import { useMounted } from "@/hooks/useMounted";
 
 export function TelemetryPanel() {
-  const { fps, latency, objectCount, isConnected, confidences } = useStore();
+  const { fps, latency, objectCount, uniqueVisitors, avgDwellTime, isConnected, confidences } = useStore();
   const [logs, setLogs] = useState<string[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const previousObjectCount = React.useRef(0);
-
-  useEffect(() => setMounted(true), []);
 
   // Map confidences to chart data format
   const chartData = confidences.map((c, i) => ({
@@ -61,8 +60,20 @@ export function TelemetryPanel() {
         </Card>
         <Card className="bg-zinc-950/50 border-zinc-800 col-span-2 shrink-0">
           <CardContent className="p-4 flex justify-between items-center">
-            <div className="text-xs text-zinc-500 font-medium">Objects Detected</div>
+            <div className="text-xs text-zinc-500 font-medium">Active in Frame</div>
             <div className="text-xl font-bold text-primary">{objectCount}</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-zinc-950/50 border-zinc-800 shrink-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-zinc-500 font-medium mb-1">Unique Visitors</div>
+            <div className="text-2xl font-bold text-emerald-400">{uniqueVisitors ?? 0}</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-zinc-950/50 border-zinc-800 shrink-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-zinc-500 font-medium mb-1">Avg Dwell Time</div>
+            <div className="text-2xl font-bold text-zinc-100">{(avgDwellTime ?? 0).toFixed(1)} <span className="text-sm font-normal text-zinc-500">s</span></div>
           </CardContent>
         </Card>
       </div>

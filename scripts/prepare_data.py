@@ -197,7 +197,7 @@ def collect_local_labels(auto_dir: str, low_conf_dir: str) -> List[Tuple[str, Di
                     logger.debug("Skipping missing image from auto_labels.json: %s", img)
                     continue
                 # Ensure source key exists
-                lbl['source'] = 'local'
+                lbl['source'] = lbl.get('source', 'local')
                 samples.append((img, lbl))
             except Exception as e:
                 logger.warning("Error processing auto-label: %s", e)
@@ -232,7 +232,7 @@ def collect_local_labels(auto_dir: str, low_conf_dir: str) -> List[Tuple[str, Di
                     lbl = json.load(f)
                 lbl['image_path'] = img
                 lbl['image_id'] = os.path.splitext(os.path.basename(jf))[0]
-                lbl['source'] = 'local'
+                lbl['source'] = lbl.get('source', 'local')
                 samples.append((img, lbl))
             except Exception as e:
                 logger.warning("Error processing low-confidence label %s: %s", jf, e)

@@ -32,15 +32,27 @@
 git clone <repo_url>
 cd vision-ml-system
 
-# Create virtual environment
-conda create -p ./venv python=3.10
-conda activate ./venv
+# Create virtual environment (Python >= 3.13 is required)
+uv venv .venv --python 3.13
 
-# Install dependencies
-pip install -r requirements.txt
+# Activate virtual environment
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
 
-# Install development dependencies
-pip install pytest pytest-cov black flake8 mypy
+# Install dependencies with CUDA GPU acceleration (Recommended)
+# Option A: One-command sync with uv (resolves CUDA 12.4 PyTorch from pyproject.toml)
+uv sync
+
+# Option B: Manual pip installation
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv pip install -r requirements.txt
+
+# Pre-flight environment & hardware verification
+python scripts/check_cuda.py
+cp .env.example .env
+python scripts/env_check.py
 ```
 
 ### 2. Running Tests

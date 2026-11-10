@@ -1,3 +1,10 @@
+import warnings
+
+# Suppress known non-actionable deprecation warnings from third-party ML dependencies
+warnings.filterwarnings("ignore", message=r".*['\"]?half['\"]? is deprecated.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"ultralytics.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"ultralytics.*")
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -9,7 +16,12 @@ from typing import Any, Dict, Optional
 from ..inference.pipeline import InferencePipeline
 from ..utils.config import load_config
 from .schemas import InferenceRequest, InferenceResponse, HealthCheck, ConfigUpdate, TriageAction, StreamConfig, PipelineToggles
-from prometheus_fastapi_instrumentator import Instrumentator
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    Instrumentator = None
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import time
@@ -32,7 +44,10 @@ app = FastAPI(
 )
 
 # Add Prometheus instrumentation
-Instrumentator().instrument(app).expose(app)
+if PROMETHEUS_AVAILABLE and Instrumentator is not None:
+    Instrumentator().instrument(app).expose(app)
+else:
+    logger.warning("prometheus_fastapi_instrumentator is not installed. /metrics endpoint will not be exposed.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,19 +71,25 @@ current_telemetry = {
     "fps": 0,
     "latency": 0,
     "objectCount": 0,
+    "uniqueVisitors": 0,
+    "avgDwellTime": 0.0,
     "gpuUtilization": 0,
     "modelLoaded": True,
-    "isConnected": True
+    "isConnected": True,
+    "avgConfidence": 0.0
 }
 
 @app.on_event("startup")
 async def startup_event():
     global pipeline
-    config = load_config('config/inference/base.yaml')
-    # Set to API mode (no visualization)
-    config['mode']['show_live'] = False
-    pipeline = InferencePipeline(config)
-    logger.info("Inference Pipeline loaded")
+    try:
+        config = load_config('config/inference/base.yaml')
+        # Set to API mode (no visualization)
+        config['mode']['show_live'] = False
+        pipeline = InferencePipeline(config)
+        logger.info("Inference Pipeline loaded")
+    except Exception as e:
+        logger.warning(f"Could not initialize default inference pipeline on startup: {e}")
 
 # Mount data/low_confidence_frames for triage image serving
 data_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "low_confidence_frames"))
@@ -132,13 +153,14 @@ _capture_refs: int = 0
 def _acquire_capture(source: str) -> "VidGearCapture":
     """Return the shared VidGearCapture, (re)opening it if the source changed."""
     global _capture, _capture_source, _capture_refs
+    s_clean = str(source).strip()
     with _capture_lock:
-        if _capture is None or _capture_source != source:
+        if _capture is None or _capture_source != s_clean:
             if _capture is not None:
                 _capture.release()
-            logger.info("Opening shared capture for source: %s", source)
-            _capture = VidGearCapture(source)
-            _capture_source = source
+            logger.info("Opening shared capture for source: %s", s_clean)
+            _capture = VidGearCapture(s_clean)
+            _capture_source = s_clean
         _capture_refs += 1
         return _capture
 
@@ -149,6 +171,7 @@ def _release_capture() -> None:
     with _capture_lock:
         _capture_refs = max(0, _capture_refs - 1)
         if _capture_refs == 0 and _capture is not None:
+            logger.info("Releasing shared capture for source: %s", _capture_source)
             _capture.release()
             _capture = None
 
@@ -161,15 +184,12 @@ class VidGearCapture:
     Exposes the same read() / release() interface so feed_generator() is unchanged.
     """
 
-    _MAX_RECONNECT_DELAY = 30.0
-
-    # How many consecutive None reads before we consider the stream dead.
-    # CamGear's background thread may not have grabbed a frame yet on the first
-    # few read() calls — we must tolerate that without tearing down the stream.
-    _NULL_FRAME_THRESHOLD = 20
+    _MAX_RECONNECT_DELAY = 15.0
+    _NULL_FRAME_THRESHOLD = 15
 
     def __init__(self, source):
-        self.source = source
+        self.source = str(source).strip()
+        self.resolved_source = self._resolve_source(self.source)
         self._stream: Optional[CamGear] = None
         self._reconnect_attempts = 0
         self.reconnect_delay = 1.0
@@ -177,19 +197,41 @@ class VidGearCapture:
         self._null_count = 0
         self._open()
 
+    @staticmethod
+    def _resolve_source(source: str):
+        s = str(source).strip()
+        if s.isdigit():
+            return int(s)
+        if s.startswith(("rtsp://", "http://", "https://")):
+            return s
+        # Remove surrounding quotes
+        s = s.strip('"\'')
+        if os.path.exists(s):
+            return os.path.abspath(s)
+        # Check relative to cwd or data/sample_videos
+        candidates = [
+            os.path.join(os.getcwd(), s),
+            os.path.join(os.getcwd(), "data", "sample_videos", os.path.basename(s)),
+            os.path.join(os.getcwd(), "data", os.path.basename(s)),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return os.path.abspath(c)
+        return s
+
     def _open(self):
-        source_val = int(self.source) if str(self.source).isdigit() else self.source
+        source_val = self.resolved_source
         is_webcam = isinstance(source_val, int)
 
-        # CAP_PROP_BACKEND (id=42) is read-only in OpenCV — it can only be passed
-        # to VideoCapture() at construction time, never via cap.set().
-        # VidGear CamGear accepts a `backend` kwarg that maps to the constructor arg.
         options = {
-            "CAP_PROP_FRAME_WIDTH": 640,
-            "CAP_PROP_FRAME_HEIGHT": 480,
             "CAP_PROP_BUFFERSIZE": 1,
         }
-        backend = (cv2.CAP_DSHOW if (is_webcam and os.name == "nt") else cv2.CAP_ANY)
+        if is_webcam:
+            options["CAP_PROP_FRAME_WIDTH"] = 640
+            options["CAP_PROP_FRAME_HEIGHT"] = 480
+            backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        else:
+            backend = cv2.CAP_ANY
 
         self._last_attempt = time.time()
         try:
@@ -197,7 +239,7 @@ class VidGearCapture:
             self._reconnect_attempts = 0
             self._null_count = 0
             self.reconnect_delay = 1.0
-            logger.info("CamGear opened: source=%s", self.source)
+            logger.info("CamGear opened: source=%s (resolved=%s)", self.source, source_val)
         except Exception as exc:
             self._stream = None
             self._reconnect_attempts += 1
@@ -209,6 +251,9 @@ class VidGearCapture:
                 )
 
     def read(self):
+        source_val = self.resolved_source
+        is_file = isinstance(source_val, str) and not source_val.startswith(("rtsp://", "http://", "https://"))
+
         # Attempt reconnect after backoff window
         if self._stream is None:
             if time.time() - self._last_attempt >= self.reconnect_delay:
@@ -217,19 +262,23 @@ class VidGearCapture:
 
         frame = self._stream.read()
         if frame is None:
-            # CamGear may return None for the first N calls while its background
-            # thread is still warming up. Only tear down after _NULL_FRAME_THRESHOLD
-            # consecutive nulls (genuine device failure / end-of-stream).
             self._null_count += 1
+            if is_file:
+                # Video file reached EOF: seamlessly loop by restarting from frame 0
+                self._null_count = 0
+                self.release()
+                self._open()
+                if self._stream is not None:
+                    loop_frame = self._stream.read()
+                    if loop_frame is not None:
+                        return True, loop_frame
+                return False, None
+
             if self._null_count < self._NULL_FRAME_THRESHOLD:
                 return False, None
 
             self._null_count = 0
-            try:
-                self._stream.stop()
-            except Exception:
-                pass
-            self._stream = None
+            self.release()
             self._reconnect_attempts += 1
             self.reconnect_delay = min(2 ** self._reconnect_attempts, self._MAX_RECONNECT_DELAY)
             if self._reconnect_attempts <= 3 or self._reconnect_attempts % 5 == 0:
@@ -239,7 +288,7 @@ class VidGearCapture:
                 )
             return False, None
 
-        self._null_count = 0  # reset on successful read
+        self._null_count = 0
         return True, frame
 
     def release(self):
@@ -250,7 +299,7 @@ class VidGearCapture:
                 pass
             self._stream = None
 
-async def feed_generator():
+async def feed_generator(requested_source: Optional[str] = None):
     """Async MJPEG generator (B-07 fix).
 
     - All await asyncio.sleep() calls yield control back to the event loop
@@ -279,33 +328,54 @@ async def feed_generator():
 
     try:
         while True:
-            # Acquire / reuse the shared capture; reopen only on source change
-            if last_source != current_stream_source:
-                if cap is not None:
-                    _release_capture()
-                cap = _acquire_capture(current_stream_source)
-                last_source = current_stream_source
+            target_source = requested_source if requested_source is not None else current_stream_source
 
             if not pipeline_state.get("stream_active", True):
+                # When stream is turned off, release camera hardware so it's truly off
+                if cap is not None:
+                    _release_capture()
+                    cap = None
+                    last_source = ""
                 current_telemetry["fps"] = 0
                 current_telemetry["latency"] = 0
+                current_telemetry["objectCount"] = 0
                 black = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(black, "OFFLINE", (260, 240),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 80, 80), 2)
+                cv2.putText(black, "STREAM TURNED OFF", (180, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (120, 120, 120), 2)
                 ret, buf = cv2.imencode(".jpg", black)
                 if ret:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                            + buf.tobytes() + b"\r\n")
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 continue
+
+            # Stream is active: acquire / reuse capture; reopen on source change
+            if last_source != target_source or cap is None:
+                if cap is not None:
+                    _release_capture()
+                cap = _acquire_capture(target_source)
+                last_source = target_source
 
             start_time = time.time()
             success, frame = cap.read() if cap else (False, None)
 
             if not success or frame is None:
                 fail = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(fail, "RECONNECTING CAMERA...", (160, 240),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                src_display = str(target_source)
+                if src_display.isdigit():
+                    msg = f"WEBCAM ({src_display}) NOT DETECTED"
+                    hint = "Check camera or switch to Video File / RTSP"
+                elif src_display.startswith(("rtsp://", "http://", "https://")):
+                    msg = "RTSP STREAM CONNECTING / UNAVAILABLE"
+                    hint = src_display[:45]
+                else:
+                    msg = "VIDEO SOURCE NOT FOUND"
+                    hint = os.path.basename(src_display)
+
+                cv2.putText(fail, msg, (120, 220),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
+                cv2.putText(fail, hint, (100, 260),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
                 ret, buf = cv2.imencode(".jpg", fail)
                 if ret:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
@@ -345,6 +415,12 @@ async def feed_generator():
                 if detections is not None and len(detections) > 0 else 0.0
             )
 
+            # Extract real-time visitor tracking and dwell time metrics
+            if pipeline is not None and hasattr(pipeline, 'analytics'):
+                current_telemetry["uniqueVisitors"] = pipeline.analytics.unique_visitor_count
+                summary_metrics = pipeline.analytics.get_summary()
+                current_telemetry["avgDwellTime"] = summary_metrics.get("avg_dwell_time_seconds", 0.0)
+
             ret, buf = cv2.imencode(".jpg", annotated,
                                     [int(cv2.IMWRITE_JPEG_QUALITY), 85])
             if ret:
@@ -359,9 +435,9 @@ async def feed_generator():
 
 
 @app.get("/video_feed")
-async def video_feed():
+async def video_feed(source: Optional[str] = None):
     return StreamingResponse(
-        feed_generator(),
+        feed_generator(requested_source=source),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
@@ -409,15 +485,70 @@ async def update_config(update: ConfigUpdate):
 
     return {"status": "Config updated successfully", "applied": update.dict(exclude_none=True)}
 
+@app.get("/stream/sources")
+async def get_stream_sources():
+    """List available sources (webcams, sample videos, rtsp presets) and current status."""
+    global current_stream_source, pipeline_state
+    
+    sample_videos = []
+    videos_dir = os.path.join(os.getcwd(), "data", "sample_videos")
+    if os.path.exists(videos_dir):
+        for f in sorted(os.listdir(videos_dir)):
+            if f.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
+                sample_videos.append({
+                    "name": f,
+                    "path": f"data/sample_videos/{f}"
+                })
+                
+    return {
+        "current_source": current_stream_source,
+        "stream_active": pipeline_state.get("stream_active", True),
+        "available_sources": {
+            "webcam": [
+                {"name": "Camera 0 (Default)", "source": "0"},
+                {"name": "Camera 1 (Secondary)", "source": "1"}
+            ],
+            "sample_videos": sample_videos,
+            "rtsp": [
+                {"name": "Local RTSP Stream", "source": "rtsp://localhost:8554/live"}
+            ]
+        }
+    }
+
+@app.get("/stream/status")
+async def get_stream_status():
+    """Get real-time status of stream and pipeline."""
+    return {
+        "current_source": current_stream_source,
+        "stream_active": pipeline_state.get("stream_active", True),
+        "pipeline_state": pipeline_state,
+        "telemetry": current_telemetry
+    }
+
 @app.post("/stream/switch")
 async def switch_stream(config: StreamConfig):
-    global current_stream_source
-    current_stream_source = config.source
-    return {"status": "Stream switching requested", "source": current_stream_source}
+    global current_stream_source, pipeline_state, _capture, _capture_refs
+    new_src = config.source.strip()
+    current_stream_source = new_src
+    pipeline_state["stream_active"] = True
+
+    # Force release of current capture under lock so new source opens immediately
+    with _capture_lock:
+        if _capture is not None:
+            _capture.release()
+            _capture = None
+            _capture_refs = 0
+
+    logger.info("Switched stream source to: %s", current_stream_source)
+    return {
+        "status": "Stream switching requested",
+        "source": current_stream_source,
+        "stream_active": pipeline_state["stream_active"]
+    }
 
 @app.patch("/config/toggles")
 async def update_toggles(toggles: PipelineToggles):
-    global pipeline_state
+    global pipeline_state, _capture, _capture_refs
     if toggles.enable_detection is not None:
         pipeline_state["enable_detection"] = toggles.enable_detection
     if toggles.enable_tracking is not None:
@@ -426,6 +557,16 @@ async def update_toggles(toggles: PipelineToggles):
         pipeline_state["show_annotations"] = toggles.show_annotations
     if toggles.stream_active is not None:
         pipeline_state["stream_active"] = toggles.stream_active
+        if not toggles.stream_active:
+            # When stream is turned off, release the capture device immediately
+            with _capture_lock:
+                if _capture is not None:
+                    _capture.release()
+                    _capture = None
+                    _capture_refs = 0
+            logger.info("Stream turned off, hardware capture released.")
+        else:
+            logger.info("Stream turned on.")
         
     return {"status": "Toggles updated", "state": pipeline_state}
 
@@ -539,6 +680,79 @@ async def perform_triage_action(action: TriageAction):
 @app.get("/analytics/stats")
 async def get_analytics_stats():
     return db.get_analytics_summary()
+
+@app.get("/analytics/runs")
+async def get_analytics_runs(limit: int = 50):
+    """Retrieve list of recent inference runs from database."""
+    runs = db.get_inference_runs(limit=limit)
+    return {"runs": runs}
+
+@app.get("/analytics/visitor-flow")
+async def get_visitor_flow():
+    """Retrieve hourly visitor flow distribution for heatmap / bar chart."""
+    import sqlite3
+    with sqlite3.connect(db.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT strftime('%H:00', timestamp) as hour, SUM(unique_visitors) as visitors
+            FROM inference_runs
+            GROUP BY hour
+            ORDER BY hour
+        """)
+        rows = cursor.fetchall()
+        
+    flow_map = {row['hour']: row['visitors'] for row in rows} if rows else {}
+    standard_hours = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"]
+    result = []
+    for h in standard_hours:
+        result.append({
+            "hour": h,
+            "visitors": flow_map.get(h, 0)
+        })
+    # If we have runs in hours outside standard_hours, append them
+    for h, count in flow_map.items():
+        if h not in standard_hours:
+            result.append({"hour": h, "visitors": count})
+    result.sort(key=lambda x: x["hour"])
+    return {"flow": result}
+
+@app.get("/analytics/dwell-distribution")
+async def get_dwell_distribution():
+    """Retrieve real engagement tier breakdown based on duration_seconds in visitor_analytics."""
+    import sqlite3
+    with sqlite3.connect(db.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN duration_seconds < 2.0 THEN 1 ELSE 0 END) as quick_transit,
+                SUM(CASE WHEN duration_seconds >= 2.0 AND duration_seconds < 5.0 THEN 1 ELSE 0 END) as short_stay,
+                SUM(CASE WHEN duration_seconds >= 5.0 AND duration_seconds < 10.0 THEN 1 ELSE 0 END) as browsing,
+                SUM(CASE WHEN duration_seconds >= 10.0 THEN 1 ELSE 0 END) as high_engagement,
+                COUNT(*) as total
+            FROM visitor_analytics
+        """)
+        row = cursor.fetchone()
+        
+    if row and row[4] and row[4] > 0:
+        return {
+            "distribution": [
+                {"name": "Transit (< 2s)", "value": row[0] or 0},
+                {"name": "Short Stay (2-5s)", "value": row[1] or 0},
+                {"name": "Browsing (5-10s)", "value": row[2] or 0},
+                {"name": "High Engagement (> 10s)", "value": row[3] or 0},
+            ],
+            "total": row[4]
+        }
+    return {
+        "distribution": [
+            {"name": "Transit (< 2s)", "value": 0},
+            {"name": "Short Stay (2-5s)", "value": 0},
+            {"name": "Browsing (5-10s)", "value": 0},
+            {"name": "High Engagement (> 10s)", "value": 0},
+        ],
+        "total": 0
+    }
 
 @app.get("/analytics/timeseries")
 async def get_analytics_timeseries():

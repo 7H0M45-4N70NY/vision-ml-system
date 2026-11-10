@@ -1,4 +1,7 @@
 # Core Deep Learning
+# NOTE: For NVIDIA GPU acceleration (CUDA 12.4), install torch with the wheel index first:
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Or use `uv sync` to auto-resolve CUDA sources from pyproject.toml.
 torch>=2.2.0
 torchvision>=0.17.0
 
@@ -8,6 +11,7 @@ rfdetr
 
 # Tracking & Annotation (Supervision ecosystem)
 supervision>=0.24.0
+trackers>=2.2.0
 
 # ONNX Export & Inference
 onnx>=1.15.0
@@ -51,3 +55,6 @@ streamlit>=1.28.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 python-multipart>=0.0.9
+prometheus-fastapi-instrumentator>=7.1.0
+
+ipykernel

@@ -33,7 +33,7 @@ export default function TriagePage() {
         if (prev && ids.includes(prev)) return prev;
         return ids[0] ?? null;
       });
-    } catch (_e) {
+    } catch {
       if (!silent) toast.error("Failed to load triage frames — is the API running?");
     } finally {
       setLoading(false);
@@ -95,7 +95,7 @@ export default function TriagePage() {
       if (result.errors?.length > 0) {
         toast.warning(`${result.errors.length} frame(s) failed`);
       }
-    } catch (_e) {
+    } catch {
       toast.error("Action failed — check API connection");
     }
   }, []);

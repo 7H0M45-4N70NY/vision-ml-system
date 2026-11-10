@@ -1,3 +1,4 @@
+import { AnalyticsSummaryCards } from "@/components/analytics/AnalyticsSummaryCards";
 import { DriftChart } from "@/components/analytics/DriftChart";
 import { VisitorHeatmap } from "@/components/analytics/VisitorHeatmap";
 import { ClassDistribution } from "@/components/analytics/ClassDistribution";
@@ -8,13 +9,15 @@ export default function AnalyticsPage() {
     <div className="flex flex-col h-full w-full p-6 overflow-y-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-bold tracking-tight">Analytics Dashboard</h2>
-        <p className="text-sm text-zinc-400">Long-term model health and fleet telemetry.</p>
+        <p className="text-sm text-zinc-400">Visitor dwell time intelligence, flow patterns, and model health.</p>
       </div>
 
+      <AnalyticsSummaryCards />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <DriftChart />
         <VisitorHeatmap />
         <ClassDistribution />
+        <DriftChart />
         <DataTable />
       </div>
     </div>

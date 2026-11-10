@@ -3,7 +3,6 @@ stages:
     cmd: python scripts/prepare_data.py --config config/training/base.yaml
     deps:
       - scripts/prepare_data.py
-      - data/auto_labeled/
       - data/low_confidence_frames/
     outs:
       - data/prepared/dataset.yaml:

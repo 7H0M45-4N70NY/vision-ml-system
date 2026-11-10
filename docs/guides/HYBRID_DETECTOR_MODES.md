@@ -145,10 +145,34 @@ detection:
   use_dual_detector: batch         # false | 'hot' | 'inline' | 'batch'
 
   # Dual detector parameters
-  dual_confidence_threshold: 0.5   # Primary < 0.5 → check secondary
+  dual_confidence_threshold: 0.5   # Primary < 0.5 → candidate failure frame
+  dual_min_confidence_floor: 0.15  # Discard pure noise/hallucinations below 0.15
+
+  # Active Learning Frame Sampling Controls (prevents dataset bloating & redundancy)
   save_low_confidence_frames: true # Save frames for analysis/training
+  save_cooldown_frames: 30         # Minimum interval between captures (30 frames ≈ 1s at 30 FPS)
+  max_saved_frames: 25             # Maximum frames saved per stream/video run
+  similarity_threshold: 0.95       # Visual diversity filter (drops near-duplicate static postures)
   low_confidence_dir: data/low_confidence_frames
 ```
+
+---
+
+## Active Learning Frame Sampling Controls
+
+Saving every single low-confidence frame from a continuous video stream is counterproductive: a 7-second occlusion event at 30 FPS produces **~210 near-identical frames**. This causes **data leakage** across train/val splits and forces models to overfit to specific background patterns.
+
+To prevent dataset bloat and maximize informational entropy, `DualDetector` applies four active learning controls:
+
+1. **Confidence Floor (`dual_min_confidence_floor: 0.15`):**
+   - Detections with confidence $< 0.15$ are usually background hallucinations or camera glare.
+   - Only borderline candidate failures ($0.15 \le \text{confidence} < 0.50$) are collected.
+2. **Temporal Cooldown (`save_cooldown_frames: 30`):**
+   - Enforces a minimum interval between saved frames ($\sim 1\text{ to }1.5\text{s}$). During prolonged occlusions, captures $\sim 3\text{--}5$ diverse moments instead of hundreds of duplicates.
+3. **Max Run Budget (`max_saved_frames: 25`):**
+   - Hard quota per video/stream session. Guarantees no single camera clip dominates your active learning buffer.
+4. **Visual Similarity Filter (`similarity_threshold: 0.95`):**
+   - Compares candidate frame thumbnails against the previously saved frame. If the scene hasn't changed by at least 5% (e.g. static camera, subject stopped moving), the redundant duplicate is dropped.
 
 ---
 

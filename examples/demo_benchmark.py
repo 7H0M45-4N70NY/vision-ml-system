@@ -164,10 +164,13 @@ def benchmark_backend(
         torch.cuda.synchronize()
 
     # Warmup
+    pred_kwargs = {"conf": conf, "iou": iou, "device": effective_device, "verbose": False}
+    if cfg['half']:
+        pred_kwargs["quantize"] = 16
+
     print(f"  Warming up ({warmup} frames)...")
     for frame in frames[:warmup]:
-        model(frame, conf=conf, iou=iou, device=effective_device,
-              verbose=False, half=cfg['half'])
+        model(frame, **pred_kwargs)
 
     if HAS_CUDA:
         torch.cuda.synchronize()
@@ -184,8 +187,7 @@ def benchmark_backend(
             torch.cuda.synchronize()
 
         t0 = time.perf_counter()
-        results = model(frame, conf=conf, iou=iou, device=effective_device,
-                        verbose=False, half=cfg['half'])
+        results = model(frame, **pred_kwargs)
         if HAS_CUDA:
             torch.cuda.synchronize()
         t1 = time.perf_counter()

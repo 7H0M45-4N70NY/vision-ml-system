@@ -144,6 +144,16 @@ class InferencePipeline:
     # ---- Offline mode: batch process a video file ----
 
     def run_offline(self, video_path: str, output_path: str = None):
+        # Update source prefix in detector to isolate saved low-confidence frames per video
+        if hasattr(self.detector, 'set_source'):
+            self.detector.set_source(video_path)
+
+        # Reset per-video tracking and analytics state
+        if hasattr(self.analytics, 'reset'):
+            self.analytics.reset()
+        if self.config.get('tracking', {}).get('enabled', True):
+            self.tracker = TrackerFactory.from_config(self.config)
+
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video: {video_path}")
@@ -184,6 +194,16 @@ class InferencePipeline:
     # ---- Online mode: real-time stream (webcam / RTSP) ----
 
     def run_online(self, source=0):
+        # Update source prefix in detector to isolate saved low-confidence frames per stream
+        if hasattr(self.detector, 'set_source'):
+            self.detector.set_source(f"stream_{source}")
+
+        # Reset session tracking and analytics state
+        if hasattr(self.analytics, 'reset'):
+            self.analytics.reset()
+        if self.config.get('tracking', {}).get('enabled', True):
+            self.tracker = TrackerFactory.from_config(self.config)
+
         cap = cv2.VideoCapture(source)
         if not cap.isOpened():
             raise ValueError(f"Could not open stream source: {source}")
@@ -269,3 +289,34 @@ class InferencePipeline:
             with open(out_path, 'w') as f:
                 json.dump(summary, f, indent=2, default=str)
             logger.info(f"Analytics saved to {out_path}")
+
+        # Persist to SQLite AnalyticsDB (Model Flywheel persistence contract)
+        try:
+            from ..analytics.analytics_db import AnalyticsDB
+            db = AnalyticsDB()
+            fps = getattr(self.analytics, 'fps', 30) or 30
+            total_frames = summary.get('total_frames', 0)
+            duration_sec = round(total_frames / max(fps, 1), 2)
+            drift_info = summary.get('drift', {})
+            dual_info = summary.get('dual_detector', {})
+
+            run_data = {
+                'source_type': self.mode,
+                'duration_seconds': duration_sec,
+                'total_frames': total_frames,
+                'unique_visitors': summary.get('unique_visitors', 0),
+                'avg_dwell_time_seconds': summary.get('avg_dwell_time_seconds', 0.0),
+                'use_dual_detector': isinstance(self.detector, DualDetector),
+                'secondary_ratio': dual_info.get('secondary_ratio', 0.0),
+                'frames_saved': dual_info.get('saved_count', 0),
+                'avg_confidence': drift_info.get('current_confidence', 0.0),
+                'drift_score': drift_info.get('drift_score', 0.0),
+            }
+            run_id = db.save_inference_run(run_data)
+            dwell_times = summary.get('dwell_times', {})
+            if dwell_times:
+                confirmed_dwells = {k: v for k, v in dwell_times.items() if str(k) != "-1"}
+                db.save_visitor_analytics(run_id, confirmed_dwells)
+            logger.info(f"Analytics persisted to AnalyticsDB: run_id={run_id}")
+        except Exception as e:
+            logger.warning(f"Could not persist run to AnalyticsDB: {e}")

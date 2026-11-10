@@ -132,3 +132,118 @@ class TestDualDetector:
         dd.detect(frame)
         mock_secondary.detect.assert_called_once()
         assert dd._secondary_calls == 1
+
+    @patch('src.vision_ml.detection.dual_detector.DetectorFactory')
+    def test_cooldown_prevents_duplicate_saving(self, mock_factory, dual_config, tmp_path):
+        """Consecutive frames within cooldown interval must not be saved."""
+        dual_config['detection']['save_low_confidence_frames'] = True
+        dual_config['detection']['low_confidence_dir'] = str(tmp_path / 'low_conf')
+        dual_config['detection']['save_cooldown_frames'] = 10
+        mock_det = MagicMock()
+        mock_det.detect.return_value = _make_detections(1, conf=0.3)
+        mock_factory.get.return_value = mock_det
+
+        dd = DualDetector(dual_config)
+        frame1 = np.zeros((480, 640, 3), dtype=np.uint8)
+        frame2 = np.ones((480, 640, 3), dtype=np.uint8) * 50
+
+        # Frame 1: saves
+        dd.detect(frame1)
+        assert dd._saved_count == 1
+
+        # Frame 2 (too soon, within 10 frames): dropped by cooldown
+        dd.detect(frame2)
+        assert dd._saved_count == 1
+
+    @patch('src.vision_ml.detection.dual_detector.DetectorFactory')
+    def test_noise_floor_ignores_garbage_confidence(self, mock_factory, dual_config, tmp_path):
+        """Detections below min_confidence_floor (e.g. 0.05 < 0.15) should be ignored as noise."""
+        dual_config['detection']['save_low_confidence_frames'] = True
+        dual_config['detection']['low_confidence_dir'] = str(tmp_path / 'low_conf')
+        dual_config['detection']['dual_min_confidence_floor'] = 0.15
+        mock_det = MagicMock()
+        mock_det.detect.return_value = _make_detections(1, conf=0.05)
+        mock_factory.get.return_value = mock_det
+
+        dd = DualDetector(dual_config)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        dd.detect(frame)
+        assert dd._saved_count == 0
+
+    @patch('src.vision_ml.detection.dual_detector.DetectorFactory')
+    def test_max_frame_budget_caps_savings(self, mock_factory, dual_config, tmp_path):
+        """Max frame budget should stop saving once quota is reached."""
+        dual_config['detection']['save_low_confidence_frames'] = True
+        dual_config['detection']['low_confidence_dir'] = str(tmp_path / 'low_conf')
+        dual_config['detection']['save_cooldown_frames'] = 1
+        dual_config['detection']['max_saved_frames'] = 2
+        mock_det = MagicMock()
+        mock_det.detect.return_value = _make_detections(1, conf=0.25)
+        mock_factory.get.return_value = mock_det
+
+        dd = DualDetector(dual_config)
+        for i in range(5):
+            # Pass different images so similarity check doesn't block
+            frame = np.ones((480, 640, 3), dtype=np.uint8) * (i * 30 + 1)
+            dd.detect(frame)
+
+        # Even though 5 opportunities occurred, it was capped at max 2
+        assert dd._saved_count == 2
+
+    @patch('src.vision_ml.detection.dual_detector.DetectorFactory')
+    def test_multi_source_isolation_prevents_overwrite(self, mock_factory, dual_config, tmp_path):
+        """Sequential runs on multiple videos must use distinct prefixes and never overwrite frames."""
+        import os
+        save_dir = tmp_path / 'low_conf'
+        dual_config['detection']['save_low_confidence_frames'] = True
+        dual_config['detection']['low_confidence_dir'] = str(save_dir)
+        dual_config['detection']['save_cooldown_frames'] = 1
+        dual_config['detection']['max_saved_frames'] = 5
+        mock_det = MagicMock()
+        mock_det.detect.return_value = _make_detections(1, conf=0.25)
+        mock_factory.get.return_value = mock_det
+
+        dd = DualDetector(dual_config)
+
+        # Video 1
+        dd.set_source("data/sample_videos/video_1.mp4")
+        frame1 = np.ones((480, 640, 3), dtype=np.uint8) * 10
+        dd.detect(frame1)
+        assert os.path.exists(save_dir / "video_1_frame_000000.jpg")
+        assert os.path.exists(save_dir / "video_1_frame_000000.json")
+
+        # Video 2
+        dd.set_source("data/sample_videos/video_2.mp4")
+        frame2 = np.ones((480, 640, 3), dtype=np.uint8) * 20
+        dd.detect(frame2)
+        assert os.path.exists(save_dir / "video_2_frame_000000.jpg")
+        assert os.path.exists(save_dir / "video_2_frame_000000.json")
+
+        # Video 1's frame must still exist untouched
+        assert os.path.exists(save_dir / "video_1_frame_000000.jpg")
+
+    @patch('src.vision_ml.detection.dual_detector.DetectorFactory')
+    def test_no_overwrite_when_frame_already_exists(self, mock_factory, dual_config, tmp_path):
+        """When an existing frame is present on disk, counter advances without overwriting."""
+        import os
+        save_dir = tmp_path / 'low_conf'
+        os.makedirs(save_dir, exist_ok=True)
+        # Pre-seed existing frame
+        (save_dir / "video_1_frame_000000.jpg").write_text("existing")
+        (save_dir / "video_1_frame_000000.json").write_text("{}")
+
+        dual_config['detection']['save_low_confidence_frames'] = True
+        dual_config['detection']['low_confidence_dir'] = str(save_dir)
+        mock_det = MagicMock()
+        mock_det.detect.return_value = _make_detections(1, conf=0.25)
+        mock_factory.get.return_value = mock_det
+
+        dd = DualDetector(dual_config)
+        dd.set_source("data/sample_videos/video_1.mp4")
+        frame = np.ones((480, 640, 3), dtype=np.uint8) * 10
+        dd.detect(frame)
+
+        # Pre-seeded frame preserved
+        assert (save_dir / "video_1_frame_000000.jpg").read_text() == "existing"
+        # New frame allocated next non-colliding slot
+        assert os.path.exists(save_dir / "video_1_frame_000001.jpg")

@@ -24,6 +24,8 @@ def main():
     parser.add_argument('--trigger', type=str, default='manual',
                         choices=['manual', 'drift', 'auto'], help='Training trigger type')
     parser.add_argument('--dataset-yaml', type=str, default=None, help='Override data.dataset_yaml')
+    parser.add_argument('--flywheel', action='store_true',
+                        help='Automatically package low-confidence frames and fine-tune on them')
     parser.add_argument('--device', type=str, default=None, help='Override training.device (cpu/cuda)')
     parser.add_argument('--epochs', type=int, default=None, help='Override training.epochs')
     parser.add_argument('--batch-size', type=int, default=None, help='Override training.batch_size')
@@ -43,15 +45,47 @@ def main():
     config = load_config(args.config)
     publisher = get_pipeline_event_publisher(config)
 
+    # Auto-detect CUDA hardware acceleration (RTX 4050)
+    if args.device:
+        active_device = args.device
+    else:
+        try:
+            import torch
+            active_device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        except ImportError:
+            active_device = 'cpu'
+    config.setdefault('training', {})['device'] = active_device
+
+    # Flywheel mode: automatically compile dataset from collected low-confidence frames
+    if args.flywheel:
+        print("[Flywheel] Compiling dataset from active learning low-confidence buffer...")
+        import glob
+        from vision_ml.labeling.auto_labeler import AutoLabeler
+        labeler = AutoLabeler(config)
+        loaded = labeler.load_dual_detector_frames('data/low_confidence_frames')
+        if loaded > 0:
+            labeler.flush(output_dir='data/auto_labeled')
+            # Run prepare_data local
+            subprocess.run([sys.executable, 'scripts/prepare_data.py', '--source', 'local'], check=False)
+            if os.path.exists('data/prepared/dataset.yaml'):
+                config.setdefault('data', {})['dataset_yaml'] = 'data/prepared/dataset.yaml'
+                print("[Flywheel] Successfully linked dataset: data/prepared/dataset.yaml")
+            elif os.path.exists('data/dataset.yaml'):
+                config.setdefault('data', {})['dataset_yaml'] = 'data/dataset.yaml'
+                print("[Flywheel] Successfully linked dataset: data/dataset.yaml")
+        else:
+            print("[Flywheel] No low-confidence frames collected yet. Using baseline sanity dataset (coco8).")
+
     # CLI overrides
     if args.dataset_yaml:
         config.setdefault('data', {})['dataset_yaml'] = args.dataset_yaml
-    if args.device:
-        config.setdefault('training', {})['device'] = args.device
     if args.epochs is not None:
         config.setdefault('training', {})['epochs'] = args.epochs
     if args.batch_size is not None:
         config.setdefault('training', {})['batch_size'] = args.batch_size
+    elif 'cuda' in str(active_device).lower():
+        # Sensible edge default for 6GB VRAM (RTX 4050)
+        config.setdefault('training', {})['batch_size'] = 8
     if args.learning_rate is not None:
         config.setdefault('training', {})['learning_rate'] = args.learning_rate
 
@@ -61,6 +95,7 @@ def main():
         mlflow_cfg['log_metrics'] = False
         mlflow_cfg['log_model'] = False
         mlflow_cfg['register_model'] = False
+        mlflow_cfg['tracking_uri'] = ''
         print("[Script] MLflow logging disabled for this run (--disable-mlflow).")
 
     effective_trigger = args.trigger

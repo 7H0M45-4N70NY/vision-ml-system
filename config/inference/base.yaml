@@ -6,7 +6,7 @@ model:
   num_classes: 1  # Person class only for visitor analytics
   task: detect
   # Model precision — output format is IDENTICAL across all options
-  precision: fp32  # 'fp32' or 'fp16'
+  precision: fp16  # 'fp32' or 'fp16'
   # fp32: Default. Works on CPU + GPU. Full precision. Models cached in ~/.cache/yolo/
   # fp16: GPU-only (CUDA). ~2x faster, ~50% less VRAM. Falls back to fp32 on CPU.
   # Note: INT8 requires TensorRT (GPU-only, complex). For portfolio, use FP32.
@@ -22,14 +22,18 @@ detection:
   #   batch:     Dual detector disabled during inference; run separately via batch job
   use_dual_detector: batch     # false | 'inline' | 'batch'
   dual_confidence_threshold: 0.5  # Primary detections below this → check secondary detector
-  # Low-confidence frame saving (for batch secondary detector analysis)
+  dual_min_confidence_floor: 0.15  # Primary detections below this are treated as noise/discarded
+  # Active Learning Frame Sampling Controls (prevents dataset redundancy and overfitting)
   save_low_confidence_frames: true  # Save frames where primary < dual_confidence_threshold
+  save_cooldown_frames: 30          # Minimum interval between saved failure frames (30 frames ≈ 1s)
+  max_saved_frames: 25              # Maximum low-confidence frames saved per stream/run (prevents video bloat)
+  similarity_threshold: 0.95        # Visual similarity cutoff (drops consecutive static duplicates)
   low_confidence_dir: data/low_confidence_frames
 
 inference:
   confidence_threshold: 0.35
   iou_threshold: 0.45
-  device: cpu  # 'cpu' or 'cuda' or 'cuda:0'
+  device: cuda:0  # 'cpu' or 'cuda' or 'cuda:0'
   classes: [0]  # COCO person class
 
 # Online = real-time stream (webcam/RTSP), Offline = batch video file

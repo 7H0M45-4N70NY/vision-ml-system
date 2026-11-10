@@ -13,6 +13,13 @@ class VisitorAnalytics:
         self.track_frames = defaultdict(int)
         self.frame_counts = []
 
+    def reset(self):
+        """Reset visitor tracking and dwell time state for a new video or stream session."""
+        self.track_first_seen.clear()
+        self.track_last_seen.clear()
+        self.track_frames.clear()
+        self.frame_counts.clear()
+
     def update(self, tracker_ids, frame_idx: int):
         if not self.enabled or tracker_ids is None:
             return

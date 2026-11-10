@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VisionMLLogRecord",
+  "description": "Standardized JSON log record specification for Vision ML System",
+  "type": "object",
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 formatted UTC timestamp"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+      "description": "Standard logging severity level"
+    },
+    "logger": {
+      "type": "string",
+      "description": "Module hierarchy (e.g. vision_ml.inference.pipeline)"
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable log message"
+    },
+    "process_id": {
+      "type": "integer",
+      "description": "OS Process ID"
+    },
+    "thread_name": {
+      "type": "string",
+      "description": "Thread name (e.g. MainThread, StreamWorker)"
+    },
+    "context": {
+      "type": "object",
+      "description": "Optional runtime metadata associated with the event",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "Unique session or inference run identifier"
+        },
+        "frame_idx": {
+          "type": "integer",
+          "description": "Current video frame index"
+        },
+        "source": {
+          "type": "string",
+          "description": "Video file path, RTSP stream URL, or camera index"
+        },
+        "latency_ms": {
+          "type": "number",
+          "description": "Execution latency for the operation"
+        },
+        "error_type": {
+          "type": "string",
+          "description": "Exception class name if logging an error"
+        },
+        "stack_trace": {
+          "type": "string",
+          "description": "Formatted exception stack trace if applicable"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": ["timestamp", "level", "logger", "message"],
+  "additionalProperties": false
+}

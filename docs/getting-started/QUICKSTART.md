@@ -5,10 +5,17 @@ Get the dual-detector + Roboflow auto-annotation loop running in 5 minutes.
 ## Prerequisites
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies with CUDA acceleration
+uv sync
+# (or: uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 && uv pip install -r requirements.txt)
+
+# Verify GPU accessibility
+python scripts/check_cuda.py
 
 # Set Roboflow API key (optional, for Roboflow upload)
+# Windows PowerShell:
+$env:ROBOFLOW_API_KEY="your_api_key_here"
+# Linux/macOS:
 export ROBOFLOW_API_KEY="your_api_key_here"
 ```
 
@@ -210,10 +217,11 @@ else:
     print("[Loop] ✅ Model is healthy, no retraining needed")
 ```
 
-Save as `scripts/auto_annotation_loop.py` and run:
+Save this snippet as a script or simply use the built-in CLI:
 
 ```bash
-python scripts/auto_annotation_loop.py
+# Upload collected pseudo-labels directly to Roboflow
+python scripts/auto_labeling_cli.py --provider roboflow
 ```
 
 ---
@@ -343,7 +351,7 @@ vision-ml-system/
 │   └── auto_labeled/            # Exported by AutoLabeler
 ├── scripts/
 │   ├── inference.py             # Run inference
-│   └── auto_annotation_loop.py  # Full pipeline
+│   └── auto_labeling_cli.py     # Flush & export pseudo-labels
 ├── src/vision_ml/
 │   ├── detection/
 │   │   ├── dual_detector.py     # Saves frames
@@ -355,7 +363,7 @@ vision-ml-system/
 │   └── inference/
 │       └── pipeline.py          # Runs inference
 └── docs/
-    └── ROBOFLOW_GUIDE.md        # Full documentation
+    └── guides/ROBOFLOW_GUIDE.md # Full documentation
 ```
 
 ---
@@ -373,6 +381,6 @@ vision-ml-system/
 
 ## Support
 
-- Full guide: See `docs/ROBOFLOW_GUIDE.md`
+- Full guide: See `docs/guides/ROBOFLOW_GUIDE.md`
 - Code: Check `src/vision_ml/labeling/auto_labeler.py`
 - Config: Edit `config/training/base.yaml`

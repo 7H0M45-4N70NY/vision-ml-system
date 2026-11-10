@@ -21,17 +21,38 @@ class RFDETRDetector(BaseDetector):
 
     def __init__(self, config: dict):
         self.model = None
-        self.confidence_threshold = config.get('inference', {}).get('confidence_threshold', 0.35)
-        yolo_classes = config.get('inference', {}).get('classes', [0])
+        inf_cfg = config.get('inference', {})
+        raw_conf = inf_cfg.get('confidence_threshold', 0.35)
+        try:
+            if isinstance(raw_conf, str):
+                raw_conf = raw_conf.rstrip('s')
+            self.confidence_threshold = float(raw_conf)
+        except (ValueError, TypeError):
+            self.confidence_threshold = 0.35
+
+        yolo_classes = inf_cfg.get('classes', [0])
         # Convert YOLO-style class IDs to COCO IDs for RF-DETR filtering
         self.classes = [self._YOLO_TO_COCO.get(c, c) for c in yolo_classes]
+
+        target_device = inf_cfg.get('device', 'cuda:0')
+        try:
+            import torch
+            if 'cuda' in str(target_device).lower() and not torch.cuda.is_available():
+                target_device = 'cpu'
+            elif not target_device or target_device == 'cpu':
+                if torch.cuda.is_available():
+                    target_device = 'cuda:0'
+        except ImportError:
+            target_device = 'cpu'
+
+        self.device = str(target_device)
         self.load_model()
 
     def load_model(self, config: dict = None) -> None:
         try:
             from rfdetr import RFDETRBase
-            self.model = RFDETRBase()
-            logger.info("Loaded (native precision)")
+            self.model = RFDETRBase(device=self.device)
+            logger.info(f"Loaded RF-DETR on {self.device} (native precision)")
         except ImportError:
             raise ImportError("rfdetr not installed. pip install rfdetr")
 

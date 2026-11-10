@@ -1,42 +1,45 @@
-from fastapi.testclient import TestClient
+import io
 from unittest.mock import MagicMock, patch
 import pytest
-from src.vision_ml.api.main import app
+from fastapi import HTTPException, UploadFile
+from src.vision_ml.api.main import health_check, predict_video
 
-client = TestClient(app)
 
-@pytest.fixture
-def mock_pipeline():
-    with patch("src.vision_ml.api.main.pipeline") as mock:
-        yield mock
+def run_sync(coro):
+    """Run an async coroutine to completion synchronously without event loop socket overhead."""
+    try:
+        coro.send(None)
+    except StopIteration as exc:
+        return exc.value
+
 
 def test_health_check():
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "healthy", "version": "1.0.0"}
+    response = run_sync(health_check())
+    assert response == {"status": "healthy", "version": "1.0.0"}
 
-def test_predict_video_no_pipeline(mock_pipeline):
-    # Simulate pipeline not initialized
+
+def test_predict_video_no_pipeline():
     with patch("src.vision_ml.api.main.pipeline", None):
-        # Create a dummy video file
-        files = {'file': ('test.mp4', b'fake video content', 'video/mp4')}
-        response = client.post("/predict/video", files=files)
-        assert response.status_code == 503
-        assert "Pipeline not initialized" in response.json()['detail']
+        mock_file = UploadFile(filename="test.mp4", file=io.BytesIO(b"fake video content"))
+        with pytest.raises(HTTPException) as exc_info:
+            run_sync(predict_video(file=mock_file))
+        assert exc_info.value.status_code == 503
+        assert "Pipeline not initialized" in exc_info.value.detail
+
 
 def test_predict_video_success():
-    # Mock the pipeline instance and its run_offline method
     mock_instance = MagicMock()
     mock_instance.run_offline.return_value = {
         "duration_seconds": 10,
         "total_frames": 300,
-        "unique_visitors": 2
+        "unique_visitors": 2,
     }
-    
     with patch("src.vision_ml.api.main.pipeline", mock_instance):
-        files = {'file': ('test.mp4', b'fake video content', 'video/mp4')}
-        response = client.post("/predict/video", files=files)
-        assert response.status_code == 200
-        data = response.json()
-        assert data['unique_visitors'] == 2
-        assert data['total_frames'] == 300
+        mock_file = UploadFile(filename="test.mp4", file=io.BytesIO(b"fake video content"))
+        response = run_sync(predict_video(file=mock_file))
+        assert response["unique_visitors"] == 2
+        assert response["total_frames"] == 300
+        mock_instance.run_offline.assert_called_once()
+
+
+

@@ -1,0 +1,40 @@
+schema: '2.0'
+stages:
+  prepare_data:
+    cmd: python scripts/prepare_data.py --config config/training/base.yaml
+    deps:
+    - path: data/low_confidence_frames/
+      hash: md5
+      md5: c71f609243b749c025b2e36087fc5645.dir
+      size: 101262340
+      nfiles: 134
+    - path: scripts/prepare_data.py
+      hash: md5
+      md5: 495fcb6b903726fd1312538322574825
+      size: 19537
+    params:
+      config/training/base.yaml:
+        data:
+          dataset_yaml:
+          train_path: data/raw/train
+          val_path: data/raw/val
+          source_priority:
+            roboflow: 0
+            rfdetr: 0
+            local: 1
+        model.num_classes: 1
+    outs:
+    - path: data/prepared/dataset.yaml
+      hash: md5
+      md5: 5f83bbfc3f12ccbb6ee34b37d7a3c2a3
+      size: 141
+    - path: data/prepared/train/
+      hash: md5
+      md5: f437706b386b256835ffa1adfd0fdde3.dir
+      size: 108099423
+      nfiles: 813
+    - path: data/prepared/val/
+      hash: md5
+      md5: 055b267e4b96105faa41643d1e7049ef.dir
+      size: 40646681
+      nfiles: 221

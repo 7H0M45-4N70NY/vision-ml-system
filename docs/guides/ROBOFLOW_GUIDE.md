@@ -119,58 +119,38 @@ labeling:
 
 ## 4. Auto-Annotation Workflow
 
-### Phase 1: Collect Pseudo-Labels
+### Phase 1: Collect Failure Frames (Governed by Active Learning Sampling)
 
 ```python
 from vision_ml.inference.pipeline import InferencePipeline
 from vision_ml.utils.config import load_config
 
 config = load_config('config/inference/base.yaml')
-config['detection']['use_dual_detector'] = True  # Enable dual-detector mode
+config['detection']['use_dual_detector'] = 'batch'  # Enable dual-detector mode
 
 pipeline = InferencePipeline(config)
 summary = pipeline.run_offline('retail_video.mp4')
-
-# Output:
-# data/low_confidence_frames/
-#   ├── frame_000000.jpg
-#   ├── frame_000000.json  (RF-DETR labels)
-#   ├── frame_000001.jpg
-#   ├── frame_000001.json
-#   └── ...
-#
-# analytics.json includes:
-# {
-#   "dual_detector": {
-#     "total_frames": 1000,
-#     "secondary_calls": 150,
-#     "secondary_ratio": 0.15,  # 15% needed secondary
-#     "frames_saved": 150
-#   }
-# }
 ```
 
-**Interpretation**:
-- `secondary_ratio: 0.15` → Primary model is 85% confident
-- `frames_saved: 150` → 150 frames need human review
-- If ratio > 0.20 → Primary model is degrading, retrain soon
+> [!TIP]
+> **Active Learning Frame Sampling Controls:**
+> Instead of saving hundreds of consecutive, near-duplicate frames from a single video, `DualDetector` applies:
+> - `dual_min_confidence_floor: 0.15` — Ignores pure noise/hallucinations below 0.15.
+> - `save_cooldown_frames: 30` — Enforces an interval between saves ($\approx 1\text{s}$ at 30 FPS).
+> - `max_saved_frames: 25` — Caps failure captures at 25 frames per video to prevent dataset bloat and train/val contamination.
+> - `similarity_threshold: 0.95` — Rejects static postures where the scene hasn't changed.
 
-### Phase 2: Upload to Roboflow
+### Phase 2: Upload to Roboflow (In-Code Fast ZIP Flow)
 
-```python
-from vision_ml.labeling.auto_labeler import AutoLabeler
-from vision_ml.utils.config import load_config
+```bash
+# Fastest: In-code ZIP upload to Roboflow signed storage with server-side unzipping
+python scripts/auto_labeling_cli.py --provider roboflow --method zip
 
-config = load_config('config/training/base.yaml')
-labeler = AutoLabeler(config)
+# Or: Parallel multithreaded per-image upload (5 concurrent workers + live progress bar)
+python scripts/auto_labeling_cli.py --provider roboflow --method per-image --workers 5
 
-# Load pseudo-labels from DualDetector
-count = labeler.load_dual_detector_frames('data/low_confidence_frames')
-print(f"Loaded {count} pseudo-labels")
-
-# Upload to Roboflow
-labeler.flush(output_dir='data/auto_labeled')
-# → Uploads to Roboflow workspace/project
+# Or: Export a single zip file for manual browser drag-and-drop
+python scripts/auto_labeling_cli.py --export-zip data/auto_labeled/roboflow_batch.zip
 ```
 
 ### Phase 3: Human Review in Roboflow UI

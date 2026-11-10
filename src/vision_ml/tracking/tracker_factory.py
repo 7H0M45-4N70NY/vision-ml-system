@@ -1,5 +1,11 @@
 import supervision as sv
 
+try:
+    import trackers as roboflow_trackers
+    HAS_ROBOFLOW_TRACKERS = True
+except ImportError:
+    HAS_ROBOFLOW_TRACKERS = False
+
 from .base import BaseTracker
 from .bytetrack import ByteTrackTracker
 from ..logging import get_logger
@@ -8,13 +14,40 @@ logger = get_logger(__name__)
 
 
 def _create_sv_tracker(tracker_type: str, config: dict):
-    """Create supervision tracker with version compatibility.
+    """Create supervision or roboflow tracker with version compatibility.
     
-    Handles different Supervision versions which may have different parameter names.
+    Prefers standalone `trackers` package if available, falling back
+    to `supervision` for backwards compatibility.
     """
     tracker_cfg = config.get('tracking', {})
     
-    # Try with full parameters first
+    if HAS_ROBOFLOW_TRACKERS:
+        try:
+            lost_buffer = tracker_cfg.get('track_buffer', 30)
+            fps = float(tracker_cfg.get('frame_rate', 30))
+            thresh = float(tracker_cfg.get('track_thresh', 0.25))
+
+            if tracker_type == 'botsort':
+                return roboflow_trackers.BoTSORTTracker(
+                    lost_track_buffer=lost_buffer,
+                    frame_rate=fps,
+                    track_activation_threshold=thresh,
+                )
+            elif tracker_type == 'ocsort':
+                return roboflow_trackers.OCSORTTracker(
+                    lost_track_buffer=lost_buffer,
+                    frame_rate=fps,
+                )
+            else:  # bytetrack
+                return roboflow_trackers.ByteTrackTracker(
+                    lost_track_buffer=lost_buffer,
+                    frame_rate=fps,
+                    track_activation_threshold=thresh,
+                )
+        except Exception as e:
+            logger.warning(f"Could not initialize from `trackers`: {e}. Trying `supervision`...")
+
+    # Fallback to supervision
     params = {
         'track_activation_threshold': tracker_cfg.get('track_thresh', 0.25),
         'lost_track_buffer': tracker_cfg.get('track_buffer', 30),
@@ -23,30 +56,29 @@ def _create_sv_tracker(tracker_type: str, config: dict):
     }
     
     try:
-        if tracker_type == 'botsort':
+        if tracker_type == 'botsort' and hasattr(sv, 'BoTSORT'):
             return sv.BoTSORT(**params)
-        elif tracker_type == 'ocsort':
+        elif tracker_type == 'ocsort' and hasattr(sv, 'OCSORT'):
             return sv.OCSORT(**params)
-        else:  # bytetrack
+        elif hasattr(sv, 'ByteTrack'):
             return sv.ByteTrack(**params)
     except TypeError as e:
-        # If parameter names don't match, try with minimal params
         logger.warning(f"Parameter error: {e}")
         logger.warning(f"Retrying {tracker_type} with minimal parameters...")
-        try:
-            if tracker_type == 'botsort':
-                return sv.BoTSORT()
-            elif tracker_type == 'ocsort':
-                return sv.OCSORT()
-            else:
-                return sv.ByteTrack()
-        except Exception as e2:
-            logger.error(f"Failed to create {tracker_type}: {e2}")
-            logger.warning("Falling back to ByteTrack with defaults")
+        if tracker_type == 'botsort' and hasattr(sv, 'BoTSORT'):
+            return sv.BoTSORT()
+        elif tracker_type == 'ocsort' and hasattr(sv, 'OCSORT'):
+            return sv.OCSORT()
+        elif hasattr(sv, 'ByteTrack'):
             return sv.ByteTrack()
-    except AttributeError:
-        logger.warning(f"{tracker_type} not available, falling back to ByteTrack")
+
+    if hasattr(sv, 'ByteTrack'):
         return sv.ByteTrack()
+
+    raise RuntimeError(
+        f"Unable to instantiate tracker '{tracker_type}'. "
+        "Please install 'trackers>=2.2.0'."
+    )
 
 
 class GenericSVTracker(BaseTracker):
@@ -60,7 +92,9 @@ class GenericSVTracker(BaseTracker):
         self.tracker = _create_sv_tracker(tracker_type, config)
 
     def update(self, detections: sv.Detections) -> sv.Detections:
-        return self.tracker.update_with_detections(detections)
+        if hasattr(self.tracker, 'update_with_detections'):
+            return self.tracker.update_with_detections(detections)
+        return self.tracker.update(detections)
 
     def reset(self) -> None:
         self.tracker.reset()
