@@ -61,7 +61,8 @@ def test_yolo_detector_uses_quantize_when_fp16_enabled():
         'inference': {'confidence_threshold': 0.4, 'iou_threshold': 0.5, 'classes': [0], 'device': 'cuda:0'},
         'model': {'precision': 'fp16', 'name': 'yolo11n'}
     }
-    with patch('src.vision_ml.detection.yolo_detector.YOLO') as mock_yolo_cls:
+    with patch('torch.cuda.is_available', return_value=True), \
+         patch('src.vision_ml.detection.yolo_detector.YOLO') as mock_yolo_cls:
         mock_model = MagicMock()
         mock_result = MagicMock()
         mock_result.boxes = MagicMock()
