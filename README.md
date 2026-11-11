@@ -1,6 +1,6 @@
 # VisionFlow — Retail Analytics & Active Learning Flywheel
 
-[![Walkthrough](https://img.shields.io/badge/Demo_Video-Watch_Walkthrough_(2.5m)-red?style=for-the-badge&logo=youtube)](https://youtu.be/D5lk6MT5J9U)
+[![Walkthrough](https://img.shields.io/badge/Demo_Video-Watch_Walkthrough-red?style=for-the-badge&logo=youtube)](https://youtu.be/D5lk6MT5J9U)
 [![Hardware](https://img.shields.io/badge/CUDA_12.4-RTX_4050_(Ada)-76B900?style=for-the-badge&logo=nvidia)](docs/guides/RTX4050_CUDA_TORCH_GUIDE.md)
 [![Supervision](https://img.shields.io/badge/Roboflow-Supervision%20%2B%20RF--DETR-purple?style=for-the-badge)](https://supervision.roboflow.com/)
 [![MLflow Live](https://img.shields.io/badge/MLflow_Live-Experiments_%26_Models-0194E2?style=for-the-badge&logo=mlflow)](https://dagshub.com/thomas_2026/vision-ml-system.mlflow)
@@ -31,9 +31,9 @@ A production-grade computer vision system for edge retail analytics featuring an
 
 ## 🎥 Video Walkthrough
 
-> A concise 2.5-minute technical walkthrough covering real-time edge tracking, the active learning failure capture mechanism, RF-DETR teacher pseudo-labeling, and MLflow-tracked retraining.
+> An end-to-end technical walkthrough demonstrating real-time edge tracking, the active learning failure capture mechanism, RF-DETR teacher pseudo-labeling, and MLflow-tracked retraining.
 
-[![VisionFlow System Walkthrough](https://img.shields.io/badge/YouTube-Watch_System_Demo_(2.5m)-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/D5lk6MT5J9U)
+[![VisionFlow System Walkthrough](https://img.shields.io/badge/YouTube-Watch_System_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/D5lk6MT5J9U)
 
 ---
 
