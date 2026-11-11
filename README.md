@@ -253,6 +253,19 @@ cd frontend && npm install && npm run dev
 
 ---
 
+## 📓 Interactive Notebook Walkthroughs
+
+A brick-by-brick interactive series exploring the complete architecture with all code, live visualizations, and execution outputs rendered and tracked directly in Git:
+
+| Notebook | Focus | Key Topics |
+|---|---|---|
+| **[01 — Edge Inference & Telemetry](notebooks/01_edge_inference_and_analytics.ipynb)** | Hot Path & Edge Persistence | `DetectorFactory`, ByteTrack tracking, `VisitorAnalytics` dwell times, SQLite persistence |
+| **[02 — Active Learning Flywheel](notebooks/02_active_learning_flywheel.ipynb)** | Failure Triage & Pseudo-Labeling | Borderline capture (`0.15 ≤ conf < 0.50`), diversity filtering, RF-DETR teacher recovery (+6 targets), side-by-side visual proof |
+| **[03 — Retraining & Model Registry](notebooks/03_mlops_retraining_and_registry.ipynb)** | Closing the MLOps Loop | GPU fine-tuning, MLflow/DagsHub loss curves, PR curves, champion model registry (`@champion`) |
+| **[04 — Cloud Training Pipeline](notebooks/04_cloud_training_dagshub.ipynb)** | 1-Click Cloud Execution | Kaggle / Google Colab execution with DVC remote sync and MLflow tracking |
+
+---
+
 ## 📖 Documentation Hub
 
 | Guide | Description |
