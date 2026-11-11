@@ -51,18 +51,18 @@ Traditional CV pipelines suffer from silent failures when conditions change. Vis
 flowchart TD
     A["🎥 Video Stream (RTSP / File / Webcam)"] --> B["⚡ Primary Detector: YOLOv11 (Fast Edge Model)"]
     
-    B -->|High Confidence ≥ 0.50| C["📊 Visitor Analytics & Tracking (ByteTrack + SQLite)"]
-    B -->|Low Confidence < 0.50| D["💾 Save Frame to data/low_confidence_frames/"]
+    B -->|"High Confidence ≥ 0.50"| C["📊 Visitor Analytics & Tracking (ByteTrack + SQLite)"]
+    B -->|"Low Confidence < 0.50"| D["💾 Save Frame to data/low_confidence_frames/"]
     
     D --> E["🧠 Secondary Detector: RF-DETR (High-Accuracy Teacher)"]
-    E -->|Overrides / Updates Labels| F["📝 Verified Pseudo-Labels (*.json)"]
+    E -->|"Overrides / Updates Labels"| F["📝 Verified Pseudo-Labels (*.json)"]
     
-    subgraph Retraining Pathways
-        F -->|Option A: Cloud HITL| G["☁️ Upload to Roboflow (auto_labeling_cli.py)"]
+    subgraph Retraining ["Retraining Pathways"]
+        F -->|"Option A: Cloud HITL"| G["☁️ Upload to Roboflow (auto_labeling_cli.py)"]
         G --> H["👥 Human Review & Annotation in Roboflow UI"]
-        H -->|Download Version (prepare_data.py)| I["📁 data/prepared/dataset.yaml"]
+        H -->|"Download Version (prepare_data.py)"| I["📁 data/prepared/dataset.yaml"]
         
-        F -->|Option B: Pure Local / Offline| I
+        F -->|"Option B: Pure Local / Offline"| I
     end
     
     I --> J["🚀 Local GPU Training (scripts/train.py)"]
