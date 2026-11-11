@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/low_confidence_frames/
       hash: md5
-      md5: c71f609243b749c025b2e36087fc5645.dir
-      size: 101262340
-      nfiles: 134
+      md5: eb06862f9dd4c1bd577b3e0e31799ff5.dir
+      size: 82210633
+      nfiles: 108
     - path: scripts/prepare_data.py
       hash: md5
       md5: 495fcb6b903726fd1312538322574825
@@ -30,11 +30,85 @@ stages:
       size: 141
     - path: data/prepared/train/
       hash: md5
-      md5: f437706b386b256835ffa1adfd0fdde3.dir
-      size: 108099423
-      nfiles: 813
+      md5: d384c425ce5550909f23ce7e08d0c637.dir
+      size: 82144198
+      nfiles: 109
     - path: data/prepared/val/
       hash: md5
-      md5: 055b267e4b96105faa41643d1e7049ef.dir
-      size: 40646681
-      nfiles: 221
+      md5: 737e687e216aac874dd1d617a7323276.dir
+      size: 37421983
+      nfiles: 51
+  train:
+    cmd: python scripts/train.py --config config/training/base.yaml 
+      --dataset-yaml data/prepared/dataset.yaml
+    deps:
+    - path: data/prepared/dataset.yaml
+      hash: md5
+      md5: 5f83bbfc3f12ccbb6ee34b37d7a3c2a3
+      size: 141
+    - path: scripts/train.py
+      hash: md5
+      md5: 72c0226ba88d4e8c2914490af644fb2e
+      size: 8503
+    - path: src/vision_ml/training/callbacks.py
+      hash: md5
+      md5: 4f437f97fc3adf40cb0602bc6918a1e6
+      size: 8309
+    - path: src/vision_ml/training/trainer.py
+      hash: md5
+      md5: fe7da8af7a940cca2ff0733ecedebd67
+      size: 9293
+    params:
+      config/training/base.yaml:
+        mlflow:
+          experiment_name: visitor_analytics_training
+          run_name: yolo11n_baseline
+          tracking_uri: https://dagshub.com/thomas_2026/vision-ml-system.mlflow
+          log_params: true
+          log_metrics: true
+          log_model: true
+          register_model: true
+          model_name: visitor-analytics-yolo11n
+        model:
+          name: yolo11n
+          pretrained: true
+          num_classes: 1
+          task: detect
+        training:
+          epochs: 10
+          batch_size: 8
+          imgsz: 640
+          learning_rate: 0.01
+          optimizer: auto
+          device: cuda:0
+          project: runs/train
+          patience: 5
+    outs:
+    - path: runs/train/
+      hash: md5
+      md5: f14ba1a1925304e0d07767f804a543d4.dir
+      size: 1868
+      nfiles: 1
+  evaluate:
+    cmd: python scripts/evaluate.py --config config/training/base.yaml --output 
+      metrics/eval_metrics.json
+    deps:
+    - path: data/prepared/val/
+      hash: md5
+      md5: b0da093de33e5735d8aed06398bb1846.dir
+      size: 37424913
+      nfiles: 51
+    - path: runs/train/
+      hash: md5
+      md5: f14ba1a1925304e0d07767f804a543d4.dir
+      size: 1868
+      nfiles: 1
+    - path: scripts/evaluate.py
+      hash: md5
+      md5: bbf5bae48b050393a13e17d99b99a4e8
+      size: 3756
+    outs:
+    - path: metrics/eval_metrics.json
+      hash: md5
+      md5: da722eeadb920997e10a545473f75fb8
+      size: 63

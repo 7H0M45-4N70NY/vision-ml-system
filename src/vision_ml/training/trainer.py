@@ -2,7 +2,14 @@ import os
 import json
 import shutil
 from pathlib import Path
-from ultralytics import YOLO
+from ultralytics import YOLO, settings
+
+# Disable Ultralytics built-in MLflow logger so our custom MLflowCallback manages DagsHub
+try:
+    settings.update({'mlflow': False})
+except Exception:
+    pass
+
 from .callbacks import MLflowCallback
 from ..logging import get_logger
 
@@ -50,6 +57,8 @@ class Trainer:
         train_cfg = self.config.get('training', {})
         data_cfg = self.config.get('data', {})
         dataset = dataset_yaml or data_cfg.get('dataset_yaml') or 'coco8.yaml'
+        target_project = train_cfg.get('project', 'runs/train')
+        abs_project = os.path.abspath(target_project)
 
         self.mlflow_callback.start_run(run_name=run_name)
         self.mlflow_callback.set_tag('trigger', trigger)
@@ -68,10 +77,19 @@ class Trainer:
                 optimizer=train_cfg.get('optimizer', 'auto'),
                 device=train_cfg.get('device', 'cpu'),
                 patience=train_cfg.get('patience', 5),
-                project=train_cfg.get('project', 'runs/train'),
+                project=abs_project,
                 name=run_name,
                 exist_ok=True,
             )
+
+            # Ensure runs/train directory exists and holds run artifacts for DVC
+            save_dir = getattr(results, 'save_dir', None)
+            if save_dir and os.path.exists(save_dir):
+                target_dest = os.path.join(target_project, run_name)
+                if os.path.abspath(save_dir) != os.path.abspath(target_dest):
+                    os.makedirs(os.path.dirname(target_dest), exist_ok=True)
+                    shutil.copytree(save_dir, target_dest, dirs_exist_ok=True)
+            os.makedirs(target_project, exist_ok=True)
 
             self._log_results(results, train_cfg, run_name)
             self._save_metrics(results, train_cfg, run_name)
