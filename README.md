@@ -1,6 +1,6 @@
 # VisionFlow — Retail Analytics & Active Learning Flywheel
 
-[![Walkthrough](https://img.shields.io/badge/Demo_Video-Watch_Walkthrough_(2.5m)-red?style=for-the-badge&logo=youtube)](#-video-walkthrough)
+[![Walkthrough](https://img.shields.io/badge/Demo_Video-Watch_Walkthrough_(2.5m)-red?style=for-the-badge&logo=youtube)](https://youtu.be/D5lk6MT5J9U)
 [![Hardware](https://img.shields.io/badge/CUDA_12.4-RTX_4050_(Ada)-76B900?style=for-the-badge&logo=nvidia)](docs/guides/RTX4050_CUDA_TORCH_GUIDE.md)
 [![Supervision](https://img.shields.io/badge/Roboflow-Supervision%20%2B%20RF--DETR-purple?style=for-the-badge)](https://supervision.roboflow.com/)
 [![MLflow Live](https://img.shields.io/badge/MLflow_Live-Experiments_%26_Models-0194E2?style=for-the-badge&logo=mlflow)](https://dagshub.com/thomas_2026/vision-ml-system.mlflow)
@@ -33,7 +33,7 @@ A production-grade computer vision system for edge retail analytics featuring an
 
 > A concise 2.5-minute technical walkthrough covering real-time edge tracking, the active learning failure capture mechanism, RF-DETR teacher pseudo-labeling, and MLflow-tracked retraining.
 
-[![VisionFlow System Walkthrough](https://img.shields.io/badge/YouTube-Watch_System_Demo_(2.5m)-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtube.com) <!-- Replace with your actual video or Loom URL -->
+[![VisionFlow System Walkthrough](https://img.shields.io/badge/YouTube-Watch_System_Demo_(2.5m)-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/D5lk6MT5J9U)
 
 ---
 
@@ -119,7 +119,7 @@ python scripts/auto_labeling_cli.py --provider roboflow
 python scripts/prepare_data.py --source roboflow --roboflow-version 1 --output data/prepared
 
 # 6. Fine-tune YOLO11n on your GPU with MLflow experiment tracking
-python scripts/train.py --dataset-yaml data/prepared/dataset.yaml --epochs 10 --batch-size 8 --device cuda:0 --run-name "yolo11n_roboflow_v1"
+python scripts/train.py --dataset-yaml data/prepared/dataset.yaml --epochs 10 --batch-size 8 --device cuda:0 --run-name "yolo11n_roboflow_v2"
 ```
 
 ### Pathway B: Pure Local (100% Offline / Privacy-First)

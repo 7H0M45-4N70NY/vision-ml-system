@@ -32,13 +32,14 @@ Recruiters and hiring managers spend **< 60 seconds** on a GitHub repository. Vi
 
 Record a concise 2 to 3-minute screen recording with voiceover (via Loom, OBS, or unlisted YouTube video):
 
-- [ ] **Record Walkthrough Video following the 5-point script:**
+- [x] **Record Walkthrough Video following the 5-point script:**
+  - Published to YouTube: [https://youtu.be/D5lk6MT5J9U](https://youtu.be/D5lk6MT5J9U)
   1. **0:00 – 0:30 | The Hook & System Architecture:** Explain the edge active learning flywheel (why silent CV failures matter in production).
   2. **0:30 – 1:00 | Live Inference:** Show `scripts/inference.py` or the web UI processing video with ByteTrack tracking & SQLite persistence.
   3. **1:00 – 1:40 | The Flywheel in Action:** Show low-confidence frames captured in `data/low_confidence_frames/` and `scripts/secondary_detector_batch.py` running RF-DETR pseudo-labeling.
   4. **1:40 – 2:10 | Retraining & MLflow:** Show `scripts/train.py --flywheel` fine-tuning YOLO and metrics logged to MLflow.
   5. **2:10 – 2:30 | Engineering Defensibility:** Highlight decoupled factory patterns (`DetectorFactory`), universal `supervision.Detections` contract, and privacy-first local edge design.
-- [ ] **Embed Video Link in README:** Add a prominent YouTube/Loom badge at the very top of `README.md`.
+- [x] **Embed Video Link in README:** Add a prominent YouTube/Loom badge at the very top of `README.md`.
 
 ---
 
